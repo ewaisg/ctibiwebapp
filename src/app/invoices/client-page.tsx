@@ -60,6 +60,15 @@ import { Calendar } from "@/components/ui/calendar";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Helpers to normalize date values to local YYYY-MM-DD and back to Date at local midnight
+const toYMD = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+const fromYMD = (s?: string): Date | undefined => (s ? new Date(`${s}T00:00:00`) : undefined);
+
 // Lightweight signature pad
 function SignaturePad({ value, onChange }: { value?: string; onChange: (dataUrl: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -462,12 +471,11 @@ export function InvoicesClientPage({
     run();
   }, [openBillingPacket, billingDeptId, secureRequest]);
 
-  // Fetch template details (field mappings) when template id is known
+  // Fetch template details (field mappings) when template id is known (Cover Pages)
   useEffect(() => {
     const fetchDetails = async () => {
-      if (!coverTemplate?.id) {
-        setCoverTemplateDetails(null);
-        return;
+      if (!openCoverPage || !coverTemplate?.id) {
+        return; // Keep previous details to avoid flicker; will be replaced on successful fetch
       }
       try {
         const res = await secureRequest(`/api/pdf-templates/${encodeURIComponent(coverTemplate.id)}`);
@@ -487,21 +495,21 @@ export function InvoicesClientPage({
           });
           if (Object.keys(initial).length) setCoverManualData((prev) => ({ ...initial, ...prev }));
         } else {
+          // If explicitly failed, clear to reflect no details
           setCoverTemplateDetails(null);
         }
       } catch {
-        setCoverTemplateDetails(null);
+        // Network or auth error; don't clear to prevent flicker
       }
     };
     fetchDetails();
-  }, [coverTemplate?.id, secureRequest]);
+  }, [openCoverPage, coverTemplate?.id, secureRequest]);
 
   // Fetch template details (field mappings) for Billing Packet when template id is known
   useEffect(() => {
     const fetchDetails = async () => {
-      if (!billingTemplate?.id) {
-        setBillingTemplateDetails(null);
-        return;
+      if (!openBillingPacket || !billingTemplate?.id) {
+        return; // Keep previous details to avoid flicker; will be replaced on successful fetch
       }
       try {
         const res = await secureRequest(`/api/pdf-templates/${encodeURIComponent(billingTemplate.id)}`);
@@ -524,11 +532,11 @@ export function InvoicesClientPage({
           setBillingTemplateDetails(null);
         }
       } catch {
-        setBillingTemplateDetails(null);
+        // Network or auth error; don't clear to prevent flicker
       }
     };
     fetchDetails();
-  }, [billingTemplate?.id, secureRequest]);
+  }, [openBillingPacket, billingTemplate?.id, secureRequest]);
 
   const handleGenerateCover = async () => {
     if (!coverDeptId || !coverFrom || !coverTo) {
@@ -700,14 +708,14 @@ export function InvoicesClientPage({
                             type="button"
                           >
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {val ? new Date(val).toLocaleDateString() : <span>Pick a date</span>}
+                            {val ? (fromYMD(val)?.toLocaleDateString() || 'Pick a date') : <span>Pick a date</span>}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="p-0" align="start">
                           <Calendar
                             mode="single"
-                            selected={val ? new Date(val) : undefined}
-                            onSelect={(d) => d && setValue(key, new Date(d.setHours(0,0,0,0)).toISOString().slice(0,10))}
+                            selected={fromYMD(val)}
+                            onSelect={(d) => d && setValue(key, toYMD(d))}
                             initialFocus
                           />
                         </PopoverContent>
@@ -1026,14 +1034,14 @@ export function InvoicesClientPage({
                                         type="button"
                                       >
                                         <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {val ? new Date(val).toLocaleDateString() : <span>Pick a date</span>}
+                                        {val ? (fromYMD(val)?.toLocaleDateString() || 'Pick a date') : <span>Pick a date</span>}
                                       </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="p-0" align="start">
                                       <Calendar
                                         mode="single"
-                                        selected={val ? new Date(val) : undefined}
-                                        onSelect={(d) => d && setValue(key, new Date(d.setHours(0,0,0,0)).toISOString().slice(0,10))}
+                                        selected={fromYMD(val)}
+                                        onSelect={(d) => d && setValue(key, toYMD(d))}
                                         initialFocus
                                       />
                                     </PopoverContent>

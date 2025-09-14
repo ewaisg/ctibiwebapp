@@ -4,6 +4,7 @@ import { resolveTemplate, TemplateCategory } from '@/lib/template-resolver';
 import { handleApiError } from '@/lib/api-error-handler';
 
 export async function GET(request: NextRequest) {
+  // Allow any authenticated user to resolve templates (no admin-only restriction)
   const authed = await withAuth(async (req) => {
     try {
       const { searchParams } = new URL(req.url);
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       return handleApiError(error);
     }
-  }, { requiredRole: 'Admin' });
+  });
 
   const limited = withRateLimit(authed);
   return limited(request);

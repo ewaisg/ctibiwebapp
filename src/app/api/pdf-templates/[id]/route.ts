@@ -8,6 +8,7 @@ export async function GET(
 ) {
   const { id } = await params;
 
+  // Relax to allow any authenticated user to read template metadata
   const authedHandler = await withAuth(async (_req: NextRequest) => {
     try {
       if (!adminDb) {
@@ -36,7 +37,7 @@ export async function GET(
     } catch (error) {
       return NextResponse.json({ error: 'Failed to fetch template' }, { status: 500 });
     }
-  }, { requiredRole: 'Admin' });
+  });
 
   const handler = withRateLimit(authedHandler);
   return handler(request);
@@ -48,6 +49,7 @@ export async function DELETE(
 ) {
   const { id } = await params;
 
+  // Keep Admin restriction for destructive action
   const authedHandler = await withAuth(async (_req: NextRequest) => {
     try {
       if (!adminDb) {

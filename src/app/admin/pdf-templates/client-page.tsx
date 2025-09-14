@@ -43,7 +43,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       
       if (templatesRes.ok) {
         const raw = await templatesRes.json();
-        const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : []);
+        const list = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
         setTemplates(list as unknown as PdfTemplate[]);
       } else {
         setTemplates([]);

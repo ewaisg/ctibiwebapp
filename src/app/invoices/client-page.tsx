@@ -155,7 +155,7 @@ export function InvoicesClientPage({
   users,
   contracts
  }: InvoicesClientPageProps) {
-  const { user } = useAuth();
+  const { user, secureRequest } = useAuth();
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -429,7 +429,7 @@ export function InvoicesClientPage({
     const run = async () => {
       if (!openCoverPage || !coverDeptId) return;
       try {
-        const res = await fetch(`/api/template-assignments/resolve?category=CoverPage&departmentId=${encodeURIComponent(coverDeptId)}`);
+        const res = await secureRequest(`/api/template-assignments/resolve?category=CoverPage&departmentId=${encodeURIComponent(coverDeptId)}`);
         if (res.ok) {
           const data = await res.json();
           setCoverTemplate(data.template);
@@ -441,14 +441,14 @@ export function InvoicesClientPage({
       }
     };
     run();
-  }, [openCoverPage, coverDeptId]);
+  }, [openCoverPage, coverDeptId, secureRequest]);
 
   // New: Resolve assigned CoverPage template for Billing Packet (uses same CoverPage assignment)
   useEffect(() => {
     const run = async () => {
       if (!openBillingPacket || !billingDeptId) return;
       try {
-        const res = await fetch(`/api/template-assignments/resolve?category=CoverPage&departmentId=${encodeURIComponent(billingDeptId)}`);
+        const res = await secureRequest(`/api/template-assignments/resolve?category=CoverPage&departmentId=${encodeURIComponent(billingDeptId)}`);
         if (res.ok) {
           const data = await res.json();
           setBillingTemplate(data.template);
@@ -460,7 +460,7 @@ export function InvoicesClientPage({
       }
     };
     run();
-  }, [openBillingPacket, billingDeptId]);
+  }, [openBillingPacket, billingDeptId, secureRequest]);
 
   // Fetch template details (field mappings) when template id is known
   useEffect(() => {
@@ -470,7 +470,7 @@ export function InvoicesClientPage({
         return;
       }
       try {
-        const res = await fetch(`/api/pdf-templates/${encodeURIComponent(coverTemplate.id)}`);
+        const res = await secureRequest(`/api/pdf-templates/${encodeURIComponent(coverTemplate.id)}`);
         if (res.ok) {
           const data = await res.json();
           setCoverTemplateDetails(data);
@@ -494,7 +494,7 @@ export function InvoicesClientPage({
       }
     };
     fetchDetails();
-  }, [coverTemplate?.id]);
+  }, [coverTemplate?.id, secureRequest]);
 
   // Fetch template details (field mappings) for Billing Packet when template id is known
   useEffect(() => {
@@ -504,7 +504,7 @@ export function InvoicesClientPage({
         return;
       }
       try {
-        const res = await fetch(`/api/pdf-templates/${encodeURIComponent(billingTemplate.id)}`);
+        const res = await secureRequest(`/api/pdf-templates/${encodeURIComponent(billingTemplate.id)}`);
         if (res.ok) {
           const data = await res.json();
           setBillingTemplateDetails(data);
@@ -528,7 +528,7 @@ export function InvoicesClientPage({
       }
     };
     fetchDetails();
-  }, [billingTemplate?.id]);
+  }, [billingTemplate?.id, secureRequest]);
 
   const handleGenerateCover = async () => {
     if (!coverDeptId || !coverFrom || !coverTo) {
@@ -555,9 +555,8 @@ export function InvoicesClientPage({
 
     setCoverLoading(true);
     try {
-      const response = await fetch('/api/coverpage', {
+      const response = await secureRequest('/api/coverpage', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ departmentId: coverDeptId, fromDate: coverFrom, toDate: coverTo, manualData: coverManualData })
       });
       if (!response.ok) {
@@ -607,9 +606,8 @@ export function InvoicesClientPage({
 
     setBillingLoading(true);
     try {
-      const res = await fetch('/api/department-packet', {
+      const res = await secureRequest('/api/department-packet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ departmentId: billingDeptId, fromDate: billingFrom, toDate: billingTo, includeInactive: billingIncludeInactive, manualData: billingManualData })
       });
       if (!res.ok) {

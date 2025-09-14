@@ -23,43 +23,58 @@ interface PdfTemplatesClientPageProps {
 }
 
 export function PdfTemplatesClientPage({ showBackButton = false, showTitle = true }: PdfTemplatesClientPageProps) {
-  const { user, secureRequest, firebaseUser } = useAuth() as any;
+  const { user, secureRequest, firebaseUser, isLoading, refreshIdToken } = useAuth() as any;
   const [templates, setTemplates] = useState<PdfTemplate[]>([]);
   const [assignments, setAssignments] = useState<TemplateAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingAssignment, setEditingAssignment] = useState<TemplateAssignment | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
+  // Load after auth is ready to ensure Authorization header is present
   useEffect(() => {
+    if (isLoading) return; // wait for auth state resolution
+    if (!firebaseUser) {
+      // Not signed in; stop loading but don't attempt requests without auth
+      setLoading(false);
+      return;
+    }
     loadData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser, isLoading]);
 
   const loadData = async () => {
-    try {
-      const [templatesRes, assignmentsRes] = await Promise.all([
+    setLoading(true);
+    const fetchPair = async () => {
+      return Promise.all([
         secureRequest('/api/pdf-templates'),
         secureRequest('/api/template-assignments')
-      ]);
-      
+      ] as const);
+    };
+
+    try {
+      let [templatesRes, assignmentsRes] = await fetchPair();
+
+      // If token not yet valid (e.g., first load race) retry once after refreshing token
+      if ((templatesRes.status === 401 || assignmentsRes.status === 401) && typeof refreshIdToken === 'function') {
+        await refreshIdToken();
+        ;[templatesRes, assignmentsRes] = await fetchPair();
+      }
+
       if (templatesRes.ok) {
         const raw = await templatesRes.json();
         const list = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
         setTemplates(list as unknown as PdfTemplate[]);
-      } else {
-        setTemplates([]);
       }
-      
+      // Do not clear on transient errors; keep previous data visible
+
       if (assignmentsRes.ok) {
         const rawA = await assignmentsRes.json();
         const listA = Array.isArray(rawA) ? rawA : (Array.isArray(rawA?.items) ? rawA.items : []);
         setAssignments(listA as unknown as TemplateAssignment[]);
-      } else {
-        setAssignments([]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
-      setTemplates([]);
-      setAssignments([]);
+      // Keep existing state on error
     } finally {
       setLoading(false);
     }

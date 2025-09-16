@@ -5,8 +5,10 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { SectionCards } from "@/components/section-cards"
 import { ProtectedRoute } from "@/components/protected-route"
+import MyInvoiceKpis from "@/components/subconsultant-dashboard/MyInvoiceKpis"
+import { Suspense } from "react"
+import SubconsultantDashboardClient from "./client-page"
 
 export default function SubconsultantDashboard() {
   return (
@@ -22,8 +24,9 @@ export default function SubconsultantDashboard() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <SectionCards />
-            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min" />
+            <Suspense fallback={<MyInvoiceKpis data={null} loading />}>
+              <SubconsultantDashboardClient />
+            </Suspense>
           </div>
         </SidebarInset>
       </SidebarProvider>

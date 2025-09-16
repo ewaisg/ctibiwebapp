@@ -127,7 +127,7 @@ async function checkForDuplicate(
   const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   
   const existingSnapshot = await adminDb
-    .collection('cti_timesheet')
+    .collection('cti_timesheets')
     .where('employeeId', '==', employeeId)
     .where('timecardDate', '>=', Timestamp.fromDate(startOfDay))
     .where('timecardDate', '<', Timestamp.fromDate(endOfDay))
@@ -308,7 +308,7 @@ export async function POST(request: NextRequest) {
         };
 
         const docId = `emp${employeeId}_d${timecardDate.toISOString().split('T')[0]}_t${Date.now()}_${Math.random()}`;
-        await adminDb!.collection('cti_timesheet').doc(docId).set(timesheetData);
+        await adminDb!.collection('cti_timesheets').doc(docId).set(timesheetData);
 
         processed++;
 

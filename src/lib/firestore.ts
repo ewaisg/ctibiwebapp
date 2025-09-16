@@ -264,7 +264,7 @@ export async function getUsers(): Promise<User[]> {
 }
 
 export async function getTimesheetEntries(): Promise<CtiTimesheet[]> {
-  return await getCollectionData('cti_timesheet') as CtiTimesheet[];
+  return await getCollectionData('cti_timesheets') as CtiTimesheet[];
 }
 
 export async function getServices(): Promise<Service[]> {

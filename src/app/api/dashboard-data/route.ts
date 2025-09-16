@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjects, getInvoices, getEmployees, getTimesheetEntries } from '@/lib/firestore';
-import type { DashboardData } from '@/types';
+import type { DashboardData, UserRole } from '@/types';
 import { BILLABLE_PAY_ITEM_CODES } from '@/types';
 import { Timestamp as ClientTimestamp } from 'firebase/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { getApps } from 'firebase-admin/app';
 
 function toDate(value: any): Date | null {
   if (!value) return null;
@@ -28,12 +30,29 @@ function getStartDateForRange(range?: string): Date | null {
   }
 }
 
+async function getUserFromRequest(request: NextRequest) {
+  try {
+    if (!getApps().length) return null;
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (!token) return null;
+    const decoded = await getAuth().verifyIdToken(token);
+    const role = (decoded as any).role as UserRole | undefined;
+    const companyId = (decoded as any).companyId as string | undefined;
+    return { uid: decoded.uid, role, companyId };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const timeRange = searchParams.get('timeRange') || undefined;
     const projectId = searchParams.get('projectId') || undefined;
     const employeeId = searchParams.get('employeeId') || undefined;
+
+    const viewer = await getUserFromRequest(request);
 
     const [projects, invoices, employees, timesheetEntries] = await Promise.all([
       getProjects(),
@@ -42,23 +61,44 @@ export async function GET(request: NextRequest) {
       getTimesheetEntries(),
     ]);
 
+    // Subconsultant scoping: restrict data to their own submissions/company
+    let scopedProjects = projects;
+    let scopedInvoices = invoices;
+    let scopedTimesheets = timesheetEntries;
+
+    if (viewer?.role === 'Subconsultant') {
+      // Scope invoices by submitterCompanyId/userId when available
+      scopedInvoices = invoices.filter((inv: any) => {
+        if (viewer.companyId && inv.submitterCompanyId) return String(inv.submitterCompanyId) === String(viewer.companyId);
+        if (inv.userId) return String(inv.userId) === String(viewer.uid);
+        return false; // hide if cannot attribute
+      });
+
+      // Scope projects by assignedCompanies companyId match when denormalized exists; otherwise hide
+      scopedProjects = projects.filter((p: any) => Array.isArray(p.assignedCompanies) && p.assignedCompanies.some((ac: any) => String(ac.companyId) === String(viewer.companyId)));
+
+      // Scope timesheets by company employees when possible; else hide
+      const companyEmployeeIds = new Set(
+        employees
+          .filter((e: any) => String(e.companyId) === String(viewer.companyId))
+          .map((e: any) => String(e.employeeId))
+      );
+      scopedTimesheets = timesheetEntries.filter((t: any) => companyEmployeeIds.has(String(t.employeeId)));
+    }
+
     const startDate = getStartDateForRange(timeRange);
     const now = new Date();
 
-    const selectedProject = projectId ? projects.find(p => p.id === projectId || p.poNumber === projectId) : undefined;
+    // Filters based on query
+    const selectedProject = projectId ? scopedProjects.find(p => p.id === projectId || (p as any).poNumber === projectId) : undefined;
 
-    const timesheetFiltered = timesheetEntries.filter(entry => {
-      // Date filter
+    const timesheetFiltered = scopedTimesheets.filter(entry => {
       const dt = toDate((entry as any).timecardDate);
       if (startDate && dt && (dt < startDate || dt > now)) return false;
-      // Employee filter (match by numeric employeeId)
-      if (employeeId) {
-        if (String(entry.employeeId) !== String(employeeId)) return false;
-      }
-      // Project filter: try to match against project id (poNumber) in labors.laborValue
+      if (employeeId && String(entry.employeeId) !== String(employeeId)) return false;
       if (selectedProject) {
         const lv = Array.isArray(entry.labors) ? entry.labors.map(l => (l.laborValue || '').toString()) : [];
-        if (!lv.includes(String(selectedProject.id)) && !lv.includes(String(selectedProject.poNumber))) {
+        if (!lv.includes(String((selectedProject as any).id)) && !lv.includes(String((selectedProject as any).poNumber))) {
           return false;
         }
       }
@@ -66,8 +106,8 @@ export async function GET(request: NextRequest) {
     });
 
     // KPIs
-    const totalInvoicedAmount = invoices.reduce((sum, inv) => sum + (inv.invoiceTotal || 0), 0);
-    const totalPaidAmount = invoices
+    const totalInvoicedAmount = scopedInvoices.reduce((sum, inv) => sum + (inv.invoiceTotal || 0), 0);
+    const totalPaidAmount = scopedInvoices
       .filter(inv => (inv as any).status === 'paid')
       .reduce((sum, inv) => sum + (inv.invoiceTotal || 0), 0);
     const totalOutstandingAmount = totalInvoicedAmount - totalPaidAmount;
@@ -79,7 +119,6 @@ export async function GET(request: NextRequest) {
     const unbillableHours = Math.max(0, totalHours - billableHours);
     const utilization = totalHours > 0 ? (billableHours / totalHours) * 100 : 0;
 
-    // Billable trends (group by day)
     const trendMap = new Map<string, { billableHours: number; unbillableHours: number }>();
     for (const entry of timesheetFiltered) {
       const dt = toDate((entry as any).timecardDate);
@@ -90,25 +129,24 @@ export async function GET(request: NextRequest) {
       else cur.unbillableHours += entry.totalHoursActual || 0;
       trendMap.set(key, cur);
     }
+
     const billableTrends = Array.from(trendMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, v]) => ({ date: ClientTimestamp.fromDate(new Date(date)), billableHours: v.billableHours, unbillableHours: v.unbillableHours }));
 
-    // Project health with robust remaining calculation
-    const projectList = selectedProject ? [selectedProject] : projects.slice(0, 25);
+    const projectList = selectedProject ? [selectedProject] : scopedProjects.slice(0, 25);
     const projectHealth = projectList.map(project => {
-      const used = Number(project.previouslyInvoicedAmount || 0);
-      // Try to infer capacity from remaining + used first
-      const capFromRemain = (project.remainingPoAmount ?? null) !== null ? used + Number(project.remainingPoAmount || 0) : 0;
-      const orig = Number(project.originalPoAmount || 0);
-      const co = Number(project.changeOrderAmount || 0);
-      const newPo = Number(project.newPoAmount || 0);
+      const used = Number((project as any).previouslyInvoicedAmount || 0);
+      const capFromRemain = ((project as any).remainingPoAmount ?? null) !== null ? used + Number((project as any).remainingPoAmount || 0) : 0;
+      const orig = Number((project as any).originalPoAmount || 0);
+      const co = Number((project as any).changeOrderAmount || 0);
+      const newPo = Number((project as any).newPoAmount || 0);
       const capacity = capFromRemain > 0 ? capFromRemain : (newPo > 0 ? newPo : (orig + co));
       const remaining = Math.max(0, capacity - used);
       const util = capacity > 0 ? (used / capacity) * 100 : 0;
       return {
-        name: project.projectName,
-        projectId: project.id,
+        name: (project as any).projectName,
+        projectId: (project as any).id,
         originalPoAmount: capacity,
         previouslyInvoicedAmount: used,
         utilization: util,
@@ -116,7 +154,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Top employees: aggregate from timesheets; join name from timesheet fields
     const empAgg = new Map<string, { billable: number; total: number; firstName?: string; lastName?: string }>();
     for (const entry of timesheetFiltered) {
       const key = String(entry.employeeId);
@@ -124,7 +161,6 @@ export async function GET(request: NextRequest) {
       const isBillable = Array.isArray(entry.payItems) && entry.payItems.some(item => BILLABLE_PAY_ITEM_CODES.includes(item.payItemCode));
       cur.total += entry.totalHoursActual || 0;
       if (isBillable) cur.billable += entry.totalHoursActual || 0;
-      // capture a name when available
       if (!cur.firstName && (entry as any).employeeFirstName) cur.firstName = (entry as any).employeeFirstName;
       if (!cur.lastName && (entry as any).employeeLastName) cur.lastName = (entry as any).employeeLastName;
       empAgg.set(key, cur);

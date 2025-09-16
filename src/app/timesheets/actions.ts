@@ -225,7 +225,7 @@ async function checkForDuplicate(
     const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
     
     const existingSnapshot = await adminDb
-        .collection('cti_timesheet')
+        .collection('cti_timesheets')
         .where('employeeId', '==', employeeId)
         .where('timecardDate', '>=', Timestamp.fromDate(startOfDay))
         .where('timecardDate', '<', Timestamp.fromDate(endOfDay))
@@ -411,7 +411,7 @@ export async function processTimesheetUpload(file: File): Promise<UploadResult> 
                 // Save to Firestore
                 const docId = generateDocumentId(employeeId, timecardDate);
                 console.log('🔥 Saving to Firestore with ID:', docId);
-                await adminDb.collection('cti_timesheet').doc(docId).set(timesheetData);
+                await adminDb.collection('cti_timesheets').doc(docId).set(timesheetData);
                 console.log('✅ Successfully saved to Firestore');
 
                 processed++;
@@ -460,7 +460,7 @@ export async function deleteTimesheetEntries(entryIds: string[]): Promise<{ succ
     const batch = adminDb.batch();
     
     for (const entryId of entryIds) {
-      const docRef = adminDb.collection('cti_timesheet').doc(entryId);
+      const docRef = adminDb.collection('cti_timesheets').doc(entryId);
       batch.delete(docRef);
     }
     
@@ -486,7 +486,7 @@ export async function deleteAllTimesheets(): Promise<{ success: boolean; deleted
 
   try {
     while (true) {
-      const snapshot = await adminDb.collection('cti_timesheet').limit(500).get();
+      const snapshot = await adminDb.collection('cti_timesheets').limit(500).get();
       
       if (snapshot.empty) break;
       

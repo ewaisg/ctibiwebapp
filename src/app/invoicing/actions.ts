@@ -368,7 +368,7 @@ async function getProjects(): Promise<Project[]> {
 }
 
 export async function getAllTimesheetEntries(): Promise<CtiTimesheet[]> {
-  return await getCollectionData('cti_timesheet') as CtiTimesheet[];
+  return await getCollectionData('cti_timesheets') as CtiTimesheet[];
 }
 
 // Invoice creation schema
@@ -433,7 +433,24 @@ export async function createInvoice(input: CreateInvoiceInput) {
     
     // Get submitter company from first invoice item and convert to DocumentReference
     const firstItem = validatedInput.invoiceItems[0];
-    const submitterCompanyId = firstItem?.companyId ? doc(db, 'companies', firstItem.companyId) : null;
+    let submitterCompanyId = firstItem?.companyId ? doc(db, 'companies', firstItem.companyId) : null;
+
+    // Fallback: use user's companyId if first item missing companyId
+    if (!submitterCompanyId && adminDb) {
+      try {
+        const userSnap = await adminDb.collection('users').doc(validatedInput.userId).get();
+        const userData = userSnap.exists ? (userSnap.data() as any) : null;
+        const companyRef = userData?.companyId;
+        const companyIdStr = typeof companyRef === 'object' && companyRef?.id
+          ? companyRef.id
+          : (typeof companyRef === 'string' ? companyRef : null);
+        if (companyIdStr) {
+          submitterCompanyId = doc(db, 'companies', companyIdStr);
+        }
+      } catch (e) {
+        console.warn('Failed to resolve submitterCompanyId fallback from user.companyId');
+      }
+    }
     
     // Create invoice document
     const invoiceData = {

@@ -738,3 +738,385 @@ async function generateInvoiceNumber(): Promise<string> {
   
   return `INV-${year}${month}-${timestamp}`;
 }
+
+// Phase 2: Server-only guards and state transitions for invoicing workflow
+import { revalidatePath } from 'next/cache';
+import type { UserRole, Invoice } from '@/types';
+import { extractId } from '@/lib/document-reference-utils';
+import { notifyAdminsPrimes, notifyAuthor } from '@/lib/notifications';
+import { Timestamp as AdminTs } from 'firebase-admin/firestore';
+
+// Helpers
+async function getUserRoleAndName(uid: string): Promise<{ role: UserRole | null; displayName: string | null }> {
+  if (!adminDb) return { role: null, displayName: null };
+  try {
+    const snap = await adminDb.collection('users').doc(uid).get();
+    if (!snap.exists) return { role: null, displayName: null };
+    const d = snap.data() as any;
+    return { role: (d?.role as UserRole) || null, displayName: (d?.displayName as string) || null };
+  } catch {
+    return { role: null, displayName: null };
+  }
+}
+
+function assertAllowed(role: UserRole | null | undefined, allowed: UserRole[]): void {
+  if (!role || !allowed.includes(role)) {
+    throw new Error('Insufficient permissions');
+  }
+}
+
+function sumInvoiceHours(inv: Invoice): number {
+  try {
+    return (inv.invoiceItems || []).reduce((s: number, it: any) => s + (Number(it.hours) || 0), 0);
+  } catch { return 0; }
+}
+
+function nowTs() { return AdminTs.now(); }
+
+async function revalidateInvoiceViews(invoiceId: string) {
+  try {
+    revalidatePath('/invoices');
+    revalidatePath(`/invoices/${invoiceId}`);
+  } catch {}
+}
+
+// Submit for review (Subconsultant: from draft -> submitted; from rejected -> resubmitted)
+export async function submitInvoiceForReview(invoiceId: string, authorUid: string) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(authorUid);
+  // All roles can submit their own draft; Subconsultant flow is primary
+  assertAllowed(role, ['Admin','Prime','Subconsultant']);
+
+  const invoiceRef = adminDb.collection('invoices').doc(invoiceId);
+  await adminDb.runTransaction(async (t) => {
+    const snap = await t.get(invoiceRef);
+    if (!snap.exists) throw new Error('Invoice not found');
+    const inv = snap.data() as any as Invoice;
+
+    const invAuthorId = extractId(inv.userId) || '';
+    if (role === 'Subconsultant' && invAuthorId !== authorUid) throw new Error('Cannot submit someone else\'s invoice');
+
+    const cur = String(inv.status || 'draft').toLowerCase();
+    if (cur === 'submitted' || cur === 'resubmitted' || cur === 'approved') {
+      throw new Error('Invoice is locked and cannot be submitted');
+    }
+
+    const nextStatus = cur === 'rejected' ? 'resubmitted' : 'submitted';
+    const history = Array.isArray(inv.history) ? inv.history.slice() : [];
+    history.push({
+      date: nowTs(),
+      notes: nextStatus === 'resubmitted' ? 'Resubmitted by author' : 'Submitted by author',
+      status: nextStatus,
+      userId: authorUid,
+      userName: displayName || 'Unknown',
+    } as any);
+
+    t.update(invoiceRef, { status: nextStatus, history, rejectedNotes: nextStatus === 'resubmitted' ? null : (inv as any).rejectedNotes ?? null });
+  });
+
+  await notifyAdminsPrimes('invoice-submitted', { invoiceId, by: authorUid });
+  await revalidateInvoiceViews(invoiceId);
+
+  return { success: true, message: 'Invoice submitted for review' };
+}
+
+export async function resubmitInvoice(invoiceId: string, authorUid: string) {
+  return submitInvoiceForReview(invoiceId, authorUid);
+}
+
+// Approve (Admin/Prime only) with idempotency and rollups
+export async function approveInvoice(invoiceId: string, approverUid: string, approvalRunId: string) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(approverUid);
+  assertAllowed(role, ['Admin','Prime']);
+
+  const invoiceRef = adminDb.collection('invoices').doc(invoiceId);
+  await adminDb.runTransaction(async (t) => {
+    const snap = await t.get(invoiceRef);
+    if (!snap.exists) throw new Error('Invoice not found');
+    const inv = snap.data() as any as Invoice;
+
+    const cur = String(inv.status || '').toLowerCase();
+    if (cur === 'approved' && (inv.approvalRunId === approvalRunId || !approvalRunId)) {
+      return; // idempotent
+    }
+    if (!(cur === 'submitted' || cur === 'resubmitted' || cur === 'draft')) {
+      throw new Error('Invoice not in approvable state');
+    }
+
+    const total = Number(inv.invoiceTotal || 0);
+    const hours = sumInvoiceHours(inv);
+
+    // Update invoice fields
+    const history = Array.isArray(inv.history) ? inv.history.slice() : [];
+    history.push({ date: nowTs(), notes: 'Approved', status: 'approved', userId: approverUid, userName: displayName || 'Unknown' } as any);
+
+    const approvalSnapshot = {
+      total,
+      hours,
+      createdAt: nowTs(),
+      approvedBy: approverUid as any,
+      approvedByName: displayName || 'Unknown',
+    };
+
+    // Apply project rollups
+    const projectId = extractId(inv.projectId);
+    if (!projectId) throw new Error('Missing projectId');
+    const projectRef = adminDb.collection('projects').doc(projectId);
+    const projectSnap = await t.get(projectRef);
+    if (!projectSnap.exists) throw new Error('Project not found');
+    const proj = projectSnap.data() as any;
+
+    const prevUsed = Number(proj.previouslyInvoicedAmount || 0);
+    const prevHours = Number(proj.usedHours || 0);
+    const orig = Number(proj.originalPoAmount || 0);
+    const co = Number(proj.changeOrderAmount || 0);
+    const newPo = Number(proj.newPoAmount || 0);
+    const capacity = newPo > 0 ? newPo : (orig + co);
+
+    const nextPreviouslyInvoiced = prevUsed + total;
+    const nextUsedHours = prevHours + hours;
+    const nextRemainingPo = Math.max(0, capacity - nextPreviouslyInvoiced);
+    const nextRemainingHours = Math.max(0, Number(proj.budgetedHours || 0) - nextUsedHours);
+
+    t.update(projectRef, {
+      previouslyInvoicedAmount: nextPreviouslyInvoiced,
+      usedHours: nextUsedHours,
+      remainingPoAmount: nextRemainingPo,
+      remainingHours: nextRemainingHours,
+    });
+
+    t.update(invoiceRef, {
+      status: 'approved',
+      approvedAt: nowTs(),
+      approvedBy: approverUid as any,
+      approvedByName: displayName || 'Unknown',
+      approvalSnapshot,
+      approvalRunId,
+      history,
+    });
+  });
+
+  await notifyAuthor(extractId((await adminDb!.collection('invoices').doc(invoiceId).get()).data()!.userId)!, 'invoice-approved', { invoiceId, by: approverUid });
+  await revalidateInvoiceViews(invoiceId);
+  return { success: true, message: 'Invoice approved' };
+}
+
+// Reject (Admin/Prime only). If reversing a prior approval, rollback rollups.
+export async function rejectInvoice(invoiceId: string, approverUid: string, reason: string, options?: { reversePriorApproval?: boolean }) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(approverUid);
+  assertAllowed(role, ['Admin','Prime']);
+
+  const reverse = Boolean(options?.reversePriorApproval);
+
+  const invoiceRef = adminDb.collection('invoices').doc(invoiceId);
+  await adminDb.runTransaction(async (t) => {
+    const snap = await t.get(invoiceRef);
+    if (!snap.exists) throw new Error('Invoice not found');
+    const inv = snap.data() as any as Invoice;
+
+    const cur = String(inv.status || '').toLowerCase();
+    if (!(cur === 'submitted' || cur === 'resubmitted' || cur === 'approved')) {
+      throw new Error('Invoice not in reviewable state');
+    }
+
+    // If reversing a previously approved invoice
+    if (reverse && inv.approvalSnapshot) {
+      const projectId = extractId(inv.projectId);
+      if (projectId) {
+        const projectRef = adminDb.collection('projects').doc(projectId);
+        const projectSnap = await t.get(projectRef);
+        if (projectSnap.exists) {
+          const proj = projectSnap.data() as any;
+          const cap = Number(proj.newPoAmount || 0) || (Number(proj.originalPoAmount || 0) + Number(proj.changeOrderAmount || 0));
+          const prevUsed = Number(proj.previouslyInvoicedAmount || 0);
+          const prevHours = Number(proj.usedHours || 0);
+          const nextUsed = Math.max(0, prevUsed - Number(inv.approvalSnapshot.total || 0));
+          const nextHours = Math.max(0, prevHours - Number(inv.approvalSnapshot.hours || 0));
+          const nextRemainPo = Math.max(0, cap - nextUsed);
+          const nextRemainHours = Math.max(0, Number(proj.budgetedHours || 0) - nextHours);
+          t.update(projectRef, {
+            previouslyInvoicedAmount: nextUsed,
+            usedHours: nextHours,
+            remainingPoAmount: nextRemainPo,
+            remainingHours: nextRemainHours,
+          });
+        }
+      }
+    }
+
+    const history = Array.isArray(inv.history) ? inv.history.slice() : [];
+    history.push({ date: nowTs(), notes: reason || 'Rejected', status: 'rejected', userId: approverUid, userName: displayName || 'Unknown' } as any);
+
+    t.update(invoiceRef, { status: 'rejected', rejectedNotes: reason || '', history });
+  });
+
+  const authorId = extractId((await adminDb!.collection('invoices').doc(invoiceId).get()).data()!.userId)!;
+  await notifyAuthor(authorId, 'invoice-rejected', { invoiceId, by: approverUid, reason });
+  await revalidateInvoiceViews(invoiceId);
+  return { success: true, message: 'Invoice rejected' };
+}
+
+// Generate PDF (Admin/Prime only, approved status). Append version and update current.
+export async function generateInvoicePdf(invoiceId: string, requesterUid: string) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(requesterUid);
+  assertAllowed(role, ['Admin','Prime']);
+
+  const { getDoc } = await import('firebase/firestore');
+  const { db } = await import('@/lib/firebase');
+
+  // Ensure approved status
+  const invSnapAdmin = await adminDb.collection('invoices').doc(invoiceId).get();
+  if (!invSnapAdmin.exists) throw new Error('Invoice not found');
+  const inv = invSnapAdmin.data() as any as Invoice;
+  if (String(inv.status || '').toLowerCase() !== 'approved') throw new Error('PDF generation allowed only for approved invoices');
+
+  // Use existing generator
+  const { generateClientSidePdf } = await import('@/lib/pdf-generator');
+  const projectId = extractId(inv.projectId) || '';
+  const contractId = extractId((inv as any).contractId) || '';
+
+  const filenameBase = `invoice-${inv.invoiceNumber || invoiceId}`;
+
+  const pdfRes = await generateClientSidePdf(invoiceId, {
+    category: 'Invoice',
+    userContext: { system: 'invoicing-actions' },
+    projectId,
+    contractId,
+  });
+  if (!pdfRes?.success || !pdfRes?.pdfUrl) throw new Error(pdfRes?.error || 'PDF generation failed');
+
+  // Append pdf version in transaction
+  await adminDb.runTransaction(async (t) => {
+    const ref = adminDb.collection('invoices').doc(invoiceId);
+    const s = await t.get(ref);
+    if (!s.exists) throw new Error('Invoice not found');
+    const cur = s.data() as any;
+    const counter = Number(cur.pdfVersionCounter || 0) + 1;
+
+    const pdfVersion = {
+      createdAt: nowTs(),
+      uid: requesterUid as any,
+      createdByName: displayName || 'Unknown',
+      fileName: `${filenameBase}-v${counter}.pdf`,
+      notes: 'Generated',
+      type: counter === 1 ? 'initial' : 'replacement',
+      url: pdfRes.pdfUrl,
+      version: counter,
+    };
+
+    const nextVersions = Array.isArray(cur.pdfVersions) ? [...cur.pdfVersions, pdfVersion] : [pdfVersion];
+
+    t.update(ref, {
+      pdfUrl: pdfRes.pdfUrl,
+      pdfFileName: pdfVersion.fileName,
+      pdfVersions: nextVersions,
+      pdfVersionCounter: counter,
+    });
+  });
+
+  await revalidateInvoiceViews(invoiceId);
+  return { success: true, message: 'PDF generated', pdfUrl: (await adminDb.collection('invoices').doc(invoiceId).get()).data()?.pdfUrl };
+}
+
+// Submit internal revision (Admin/Prime only, approved status)
+export async function submitInvoiceWithInternalChanges(invoiceId: string, requesterUid: string, notes?: string) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(requesterUid);
+  assertAllowed(role, ['Admin','Prime']);
+
+  const invSnapAdmin = await adminDb.collection('invoices').doc(invoiceId).get();
+  if (!invSnapAdmin.exists) throw new Error('Invoice not found');
+  const inv = invSnapAdmin.data() as any as Invoice;
+  if (String(inv.status || '').toLowerCase() !== 'approved') throw new Error('Only approved invoices can be revised');
+
+  // Simulate generating a new PDF from internal edits (re-use generator but mark type)
+  const { generateClientSidePdf } = await import('@/lib/pdf-generator');
+  const projectId = extractId(inv.projectId) || '';
+  const contractId = extractId((inv as any).contractId) || '';
+  const filenameBase = `invoice-${inv.invoiceNumber || invoiceId}`;
+
+  const pdfRes = await generateClientSidePdf(invoiceId, {
+    category: 'Invoice',
+    userContext: { system: 'invoicing-internal-revision' },
+    projectId,
+    contractId,
+  });
+  if (!pdfRes?.success || !pdfRes?.pdfUrl) throw new Error(pdfRes?.error || 'PDF generation failed');
+
+  await adminDb.runTransaction(async (t) => {
+    const ref = adminDb.collection('invoices').doc(invoiceId);
+    const s = await t.get(ref);
+    if (!s.exists) throw new Error('Invoice not found');
+    const cur = s.data() as any;
+    const counter = Number(cur.pdfVersionCounter || 0) + 1;
+
+    const pdfVersion = {
+      createdAt: nowTs(),
+      uid: requesterUid as any,
+      createdByName: displayName || 'Unknown',
+      fileName: `${filenameBase}-v${counter}.pdf`,
+      notes: notes || 'Internal revision',
+      type: 'internal-revision',
+      url: pdfRes.pdfUrl,
+      version: counter,
+    };
+
+    const nextVersions = Array.isArray(cur.pdfVersions) ? [...cur.pdfVersions, pdfVersion] : [pdfVersion];
+
+    t.update(ref, {
+      pdfUrl: pdfRes.pdfUrl,
+      pdfFileName: pdfVersion.fileName,
+      pdfVersions: nextVersions,
+      pdfVersionCounter: counter,
+    });
+  });
+
+  await revalidateInvoiceViews(invoiceId);
+  return { success: true, message: 'Internal revision submitted' };
+}
+
+// Restore specific pdf version (Admin/Prime only, approved status)
+export async function restoreInvoicePdfVersion(invoiceId: string, requesterUid: string, versionNumber: number, notes?: string) {
+  if (!adminDb) throw new Error('Database not initialized');
+  const { role, displayName } = await getUserRoleAndName(requesterUid);
+  assertAllowed(role, ['Admin','Prime']);
+
+  await adminDb.runTransaction(async (t) => {
+    const ref = adminDb.collection('invoices').doc(invoiceId);
+    const s = await t.get(ref);
+    if (!s.exists) throw new Error('Invoice not found');
+    const cur = s.data() as any;
+    if (String(cur.status || '').toLowerCase() !== 'approved') throw new Error('Only approved invoices can restore PDF');
+
+    const versions = Array.isArray(cur.pdfVersions) ? cur.pdfVersions : [];
+    const target = versions.find((v: any) => v.version === versionNumber);
+    if (!target) throw new Error('Version not found');
+
+    const counter = Number(cur.pdfVersionCounter || 0) + 1;
+    const replacement = {
+      createdAt: nowTs(),
+      uid: requesterUid as any,
+      createdByName: displayName || 'Unknown',
+      fileName: target.fileName,
+      notes: notes || `Restore v${versionNumber}`,
+      type: 'replacement',
+      url: target.url,
+      version: counter,
+    };
+
+    const nextVersions = [...versions, replacement];
+
+    t.update(ref, {
+      pdfUrl: target.url,
+      pdfFileName: target.fileName,
+      pdfVersions: nextVersions,
+      pdfVersionCounter: counter,
+    });
+  });
+
+  await revalidateInvoiceViews(invoiceId);
+  return { success: true, message: 'PDF version restored' };
+}

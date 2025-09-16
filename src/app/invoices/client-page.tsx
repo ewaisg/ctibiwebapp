@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
-import { FileText, Clock, CheckCircle, DollarSign, Eye, MoreHorizontal, Download, Archive, Trash2, AlertTriangle } from "lucide-react";
+import { FileText, Clock, CheckCircle, DollarSign, Eye, MoreHorizontal, Download, Archive, Trash2, AlertTriangle, Send, RefreshCw, History, XCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -202,7 +202,6 @@ export function InvoicesClientPage({
   const [billingTo, setBillingTo] = useState<string>("");
   const [billingIncludeInactive, setBillingIncludeInactive] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState(false);
-  // New: template + manual fields for Billing Packet cover page
   const [billingTemplate, setBillingTemplate] = useState<{ id: string; templateName: string } | null>(null);
   const [billingTemplateDetails, setBillingTemplateDetails] = useState<{
     id: string;
@@ -211,6 +210,30 @@ export function InvoicesClientPage({
     fieldMappings?: TemplateFieldMapping[];
   } | null>(null);
   const [billingManualData, setBillingManualData] = useState<Record<string, any>>({});
+
+  // New: action state for approvals flow
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; status: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [reverseApproval, setReverseApproval] = useState(false);
+
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<{ id: string; versions: any[] } | null>(null);
+
+  // Helpers for permissions
+  const isAuthor = (invoice: Invoice & { userId?: any }) => {
+    if (!user) return false;
+    const invUserId = typeof invoice.userId === 'object' && invoice.userId?.id ? invoice.userId.id : invoice.userId;
+    return invUserId === user.uid;
+  };
+  const isAdminOrPrime = user?.role === 'Admin' || user?.role === 'Prime';
+
+  const canSubmit = (invoice: any) => isAuthor(invoice) && (invoice.status === 'draft' || invoice.status === 'rejected');
+  const canApprove = (invoice: any) => isAdminOrPrime && (invoice.status === 'submitted' || invoice.status === 'resubmitted');
+  const canReject = (invoice: any) => isAdminOrPrime && (['submitted','resubmitted','approved'].includes(invoice.status));
+  const canGeneratePdf = (invoice: any) => isAdminOrPrime && invoice.status === 'approved';
+  const canRestorePdf = (invoice: any) => isAdminOrPrime && invoice.status === 'approved' && Array.isArray(invoice.pdfVersions) && invoice.pdfVersions.length > 0;
 
   // Filter invoices based on user role
   const filteredInvoices = useMemo(() => {
@@ -406,20 +429,132 @@ export function InvoicesClientPage({
     setBulkDeleteDialogOpen(true);
   };
 
+  // Selection helpers for table
   const toggleInvoiceSelection = (invoiceId: string) => {
-    setSelectedInvoices(prev => 
-      prev.includes(invoiceId) 
-        ? prev.filter(id => id !== invoiceId)
-        : [...prev, invoiceId]
+    setSelectedInvoices((prev) =>
+      prev.includes(invoiceId) ? prev.filter((id) => id !== invoiceId) : [...prev, invoiceId]
     );
   };
 
   const toggleSelectAll = () => {
-    const deletableInvoices = filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status));
+    const deletableInvoices = filteredInvoices.filter((inv) => ['draft', 'submitted', 'approved'].includes(inv.status));
     if (selectedInvoices.length === deletableInvoices.length) {
       setSelectedInvoices([]);
     } else {
-      setSelectedInvoices(deletableInvoices.map(inv => inv.id).filter(Boolean));
+      setSelectedInvoices(deletableInvoices.map((inv) => inv.id).filter(Boolean) as string[]);
+    }
+  };
+
+  // Actions wiring for invoice workflow
+  const handleSubmitForReview = async (invoiceId: string) => {
+    if (!user) return;
+    setActionLoadingId(invoiceId);
+    try {
+      const { submitInvoiceForReview } = await import('../invoicing/actions');
+      const res = await submitInvoiceForReview(invoiceId, user.uid);
+      if (res?.success) {
+        toast({ title: 'Submitted for review' });
+        router.refresh();
+      } else {
+        toast({ title: 'Submit failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Submit failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleApprove = async (invoiceId: string) => {
+    if (!user) return;
+    setActionLoadingId(invoiceId);
+    try {
+      const { approveInvoice } = await import('../invoicing/actions');
+      const runId = `${invoiceId}-${Date.now()}`;
+      const res = await approveInvoice(invoiceId, user.uid, runId);
+      if (res?.success) {
+        toast({ title: 'Invoice approved' });
+        router.refresh();
+      } else {
+        toast({ title: 'Approval failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Approval failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openRejectDialog = (invoiceId: string, status: string) => {
+    setRejectTarget({ id: invoiceId, status });
+    setReverseApproval(status === 'approved');
+    setRejectReason('');
+    setRejectDialogOpen(true);
+  };
+
+  const handleReject = async () => {
+    if (!user || !rejectTarget) return;
+    setActionLoadingId(rejectTarget.id);
+    try {
+      const { rejectInvoice } = await import('../invoicing/actions');
+      const res = await rejectInvoice(rejectTarget.id, user.uid, rejectReason || 'Rejected', { reversePriorApproval: reverseApproval });
+      if (res?.success) {
+        toast({ title: 'Invoice rejected' });
+        setRejectDialogOpen(false);
+        router.refresh();
+      } else {
+        toast({ title: 'Rejection failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Rejection failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleGenerateApprovedPdf = async (invoiceId: string) => {
+    if (!user) return;
+    setActionLoadingId(invoiceId);
+    try {
+      const { generateInvoicePdf } = await import('../invoicing/actions');
+      const res = await generateInvoicePdf(invoiceId, user.uid);
+      if (res?.success) {
+        toast({ title: 'PDF generated' });
+        router.refresh();
+      } else {
+        toast({ title: 'PDF generation failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'PDF generation failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openRestoreDialog = (invoice: any) => {
+    const versions = Array.isArray(invoice.pdfVersions) ? invoice.pdfVersions : [];
+    if (!invoice?.id) return;
+    setRestoreTarget({ id: invoice.id, versions });
+    setRestoreDialogOpen(true);
+  };
+
+  const handleRestoreVersion = async (versionNumber: number) => {
+    if (!user || !restoreTarget) return;
+    setActionLoadingId(restoreTarget.id);
+    try {
+      const { restoreInvoicePdfVersion } = await import('../invoicing/actions');
+      const res = await restoreInvoicePdfVersion(restoreTarget.id, user.uid, versionNumber, `Restore v${versionNumber}`);
+      if (res?.success) {
+        toast({ title: `Restored to v${versionNumber}` });
+        setRestoreDialogOpen(false);
+        router.refresh();
+      } else {
+        toast({ title: 'Restore failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Restore failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -484,16 +619,16 @@ export function InvoicesClientPage({
           setCoverTemplateDetails(data);
           // Initialize manualData with defaults if provided
           const manualMappings: TemplateFieldMapping[] = Array.isArray(data.fieldMappings)
-            ? data.fieldMappings.filter((m: any) => (m?.sourceCollection || '') === 'manual')
+            ? data.fieldMappings.filter((m: TemplateFieldMapping) => (m?.sourceCollection || '') === 'manual')
             : [];
           const initial: Record<string, any> = {};
-          manualMappings.forEach((m) => {
+          manualMappings.forEach((m: TemplateFieldMapping) => {
             const key = m.sourceField || m.fieldName;
             if (m.defaultValue !== undefined && m.defaultValue !== null) {
               initial[key] = m.defaultValue;
             }
           });
-          if (Object.keys(initial).length) setCoverManualData((prev) => ({ ...initial, ...prev }));
+          if (Object.keys(initial).length) setCoverManualData((prev: Record<string, any>) => ({ ...initial, ...prev }));
         } else {
           // If explicitly failed, clear to reflect no details
           setCoverTemplateDetails(null);
@@ -518,16 +653,16 @@ export function InvoicesClientPage({
           setBillingTemplateDetails(data);
           // Initialize manualData with defaults if provided
           const manualMappings: TemplateFieldMapping[] = Array.isArray(data.fieldMappings)
-            ? data.fieldMappings.filter((m: any) => (m?.sourceCollection || '') === 'manual')
+            ? data.fieldMappings.filter((m: TemplateFieldMapping) => (m?.sourceCollection || '') === 'manual')
             : [];
           const initial: Record<string, any> = {};
-          manualMappings.forEach((m) => {
+          manualMappings.forEach((m: TemplateFieldMapping) => {
             const key = m.sourceField || m.fieldName;
             if (m.defaultValue !== undefined && m.defaultValue !== null) {
               initial[key] = m.defaultValue;
             }
           });
-          if (Object.keys(initial).length) setBillingManualData((prev) => ({ ...initial, ...prev }));
+          if (Object.keys(initial).length) setBillingManualData((prev: Record<string, any>) => ({ ...initial, ...prev }));
         } else {
           setBillingTemplateDetails(null);
         }
@@ -642,20 +777,20 @@ export function InvoicesClientPage({
 
   // Render manual fields from template UI hints
   const renderManualFields = () => {
-    const mappings = coverTemplateDetails?.fieldMappings?.filter((m) => (m.sourceCollection || '') === 'manual') || [];
+    const mappings = (coverTemplateDetails?.fieldMappings?.filter((m: TemplateFieldMapping) => (m.sourceCollection || '') === 'manual') || []) as TemplateFieldMapping[];
     if (!mappings.length) {
       return null;
     }
-    const sorted = [...mappings].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const sorted = [...mappings].sort((a: TemplateFieldMapping, b: TemplateFieldMapping) => (a.order ?? 0) - (b.order ?? 0));
 
     const setValue = (key: string, value: any) => {
-      setCoverManualData((prev) => ({ ...prev, [key]: value }));
+      setCoverManualData((prev: Record<string, any>) => ({ ...prev, [key]: value }));
     };
 
     // Group by section
-    const groups = sorted.reduce<Record<string, typeof sorted>>((acc, m) => {
+    const groups = sorted.reduce<Record<string, TemplateFieldMapping[]>>((acc, m: TemplateFieldMapping) => {
       const sec = m.section || 'Details';
-      if (!acc[sec]) acc[sec] = [] as any;
+      if (!acc[sec]) acc[sec] = [] as TemplateFieldMapping[];
       acc[sec].push(m);
       return acc;
     }, {});
@@ -666,7 +801,7 @@ export function InvoicesClientPage({
           <div key={section} className="space-y-3">
             <div className="text-sm font-medium text-muted-foreground">{section}</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {fields.map((m) => {
+              {fields.map((m: TemplateFieldMapping) => {
                 const key = m.sourceField || m.fieldName;
                 const label = m.uiLabel || m.fieldName;
                 const required = m.validation?.required ?? m.isRequired;
@@ -982,23 +1117,23 @@ export function InvoicesClientPage({
             <ScrollArea className="h-[40vh] pr-2">
               {/* Render manual fields for Billing Packet Cover Page */}
               {(() => {
-                const mappings = billingTemplateDetails?.fieldMappings?.filter((m) => (m.sourceCollection || '') === 'manual') || [];
+                const mappings = (billingTemplateDetails?.fieldMappings?.filter((m: TemplateFieldMapping) => (m.sourceCollection || '') === 'manual') || []) as TemplateFieldMapping[];
                 if (!mappings.length) return null;
-                const sorted = [...mappings].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-                const groups = sorted.reduce<Record<string, typeof sorted>>((acc, m) => {
+                const sorted = [...mappings].sort((a: TemplateFieldMapping, b: TemplateFieldMapping) => (a.order ?? 0) - (b.order ?? 0));
+                const groups = sorted.reduce<Record<string, TemplateFieldMapping[]>>((acc, m: TemplateFieldMapping) => {
                   const sec = m.section || 'Details';
-                  if (!acc[sec]) acc[sec] = [] as any;
+                  if (!acc[sec]) acc[sec] = [] as TemplateFieldMapping[];
                   acc[sec].push(m);
                   return acc;
                 }, {});
-                const setValue = (key: string, value: any) => setBillingManualData((prev) => ({ ...prev, [key]: value }));
+                const setValue = (key: string, value: any) => setBillingManualData((prev: Record<string, any>) => ({ ...prev, [key]: value }));
                 return (
                   <div className="space-y-6">
                     {Object.entries(groups).map(([section, fields]) => (
                       <div key={section} className="space-y-3">
                         <div className="text-sm font-medium text-muted-foreground">{section}</div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {fields.map((m) => {
+                          {fields.map((m: TemplateFieldMapping) => {
                             const key = m.sourceField || m.fieldName;
                             const label = m.uiLabel || m.fieldName;
                             const required = m.validation?.required ?? m.isRequired;
@@ -1282,18 +1417,26 @@ export function InvoicesClientPage({
                       {formatCurrency(invoice.invoiceTotal || 0)}
                     </TableCell>
                     <TableCell>
-                      <Badge 
-                        variant="outline" 
-                        className={statusColors[invoice.status] || statusColors.draft}
-                      >
-                        {invoice.status}
-                      </Badge>
+                      <div className="flex items-center gap-2 max-w-[420px]">
+                        <Badge 
+                          variant="outline" 
+                          className={statusColors[invoice.status] || statusColors.draft}
+                        >
+                          {invoice.status}
+                        </Badge>
+                        {invoice.status === 'rejected' && invoice.rejectedNotes ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={invoice.rejectedNotes}>
+                            <AlertTriangle className="h-3 w-3" aria-hidden />
+                            {invoice.rejectedNotes}
+                          </span>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>{formatDate(invoice.dueDate)}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={isDeleting}>
+                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={isDeleting || actionLoadingId === invoice.id}>
                             <span className="sr-only">Open menu</span>
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
@@ -1303,6 +1446,30 @@ export function InvoicesClientPage({
                             <Eye className="mr-2 h-4 w-4" />
                             View/Edit
                           </DropdownMenuItem>
+
+                          {/* Submit/Resubmit for author */}
+                          {canSubmit(invoice) && invoice.id && (
+                            <DropdownMenuItem onClick={() => handleSubmitForReview(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                              <Send className="mr-2 h-4 w-4" />
+                              {invoice.status === 'rejected' ? 'Resubmit' : 'Submit for Review'}
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* Approve/Reject for Admin/Prime */}
+                          {canApprove(invoice) && invoice.id && (
+                            <DropdownMenuItem onClick={() => handleApprove(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                              <CheckCircle className="mr-2 h-4 w-4" />
+                              Approve
+                            </DropdownMenuItem>
+                          )}
+                          {canReject(invoice) && invoice.id && (
+                            <DropdownMenuItem onClick={() => openRejectDialog(invoice.id!, invoice.status)} disabled={actionLoadingId === invoice.id}>
+                              <XCircle className="mr-2 h-4 w-4" />
+                              Reject...
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* PDF actions */}
                           {invoice.pdfUrl ? (
                             <DropdownMenuItem onClick={() => {
                               const sanitizedUrl = invoice.pdfUrl?.replace(/[<>"']/g, '');
@@ -1311,21 +1478,26 @@ export function InvoicesClientPage({
                               <Download className="mr-2 h-4 w-4" />
                               Download PDF
                             </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem 
-                              onClick={() => invoice.id && handleGeneratePDF(invoice.id)}
-                              disabled={!invoice.id}
-                            >
-                              <FileText className="mr-2 h-4 w-4" />
-                              Generate PDF
+                          ) : null}
+                          {canGeneratePdf(invoice) && invoice.id && (
+                            <DropdownMenuItem onClick={() => handleGenerateApprovedPdf(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Generate/Refresh PDF
                             </DropdownMenuItem>
                           )}
+                          {canRestorePdf(invoice) && (
+                            <DropdownMenuItem onClick={() => openRestoreDialog(invoice)} disabled={actionLoadingId === invoice.id}>
+                              <History className="mr-2 h-4 w-4" />
+                              Restore PDF Version...
+                            </DropdownMenuItem>
+                          )}
+
                           <DropdownMenuSeparator />
                           {['draft', 'submitted', 'approved'].includes(invoice.status) && invoice.id && (
                             <DropdownMenuItem 
                               className="text-destructive"
                               onClick={() => invoice.id && confirmDeleteInvoice(invoice.id, invoice.status)}
-                              disabled={isDeleting || !invoice.id}
+                              disabled={isDeleting || actionLoadingId === invoice.id}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete
@@ -1414,6 +1586,69 @@ export function InvoicesClientPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reject Dialog */}
+      <AlertDialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Reject Invoice
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Provide a reason for rejection. Authors will be notified.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Reason</Label>
+            <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Explain why this invoice is rejected" />
+            {rejectTarget?.status === 'approved' && (
+              <div className="flex items-center justify-between border rounded p-3">
+                <div>
+                  <div className="font-medium text-sm">Reverse prior approval rollups</div>
+                  <div className="text-xs text-muted-foreground">Adjust project totals back using snapshot</div>
+                </div>
+                <Switch checked={reverseApproval} onCheckedChange={setReverseApproval} />
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={actionLoadingId !== null}>
+              Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Restore PDF Version Dialog */}
+      <Dialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Restore PDF Version</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {restoreTarget?.versions?.length ? (
+              <div className="space-y-2">
+                {restoreTarget.versions.map((v: any) => (
+                  <div key={v.version} className="flex items-center justify-between border rounded p-3">
+                    <div>
+                      <div className="font-medium">Version v{v.version} <span className="text-xs text-muted-foreground">({v.type})</span></div>
+                      <div className="text-xs text-muted-foreground">{typeof v.createdAt === 'string' ? new Date(v.createdAt).toLocaleString() : (v.createdAt?.seconds ? new Date(v.createdAt.seconds * 1000).toLocaleString() : '')}</div>
+                      <div className="text-xs truncate max-w-[320px]">{v.fileName}</div>
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => handleRestoreVersion(v.version)} disabled={actionLoadingId === restoreTarget?.id}>
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No versions available.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -76,23 +76,36 @@ Date: 2025-09-16
 
 ## Task Tracker
 
-- [ ] A1. Standardize collection names (use `cti_timesheets`) in all data access functions and pages.
+- [x] A1. Standardize collection names (use `cti_timesheets`) in all data access functions and pages.
   - Depends on: none
-- [ ] A2. Consolidate Firestore access to `src/lib/firestore.ts` and remove divergent `src/services/firestore.ts` usages.
+- [x] A2. Consolidate Firestore access to `src/lib/firestore.ts` and remove divergent `src/services/firestore.ts` usages.
   - Depends on: A1
-- [ ] A3. Ensure invoice creation sets `submitterCompanyId` (fallback to `user.companyId`).
+- [x] A3. Ensure invoice creation sets `submitterCompanyId` (fallback to `user.companyId`).
   - Depends on: none
-- [ ] B1. Add role-aware scoping to `/api/dashboard-data` for Subconsultants (invoices, projects, timesheets).
+- [x] B1. Add role-aware scoping to `/api/dashboard-data` for Subconsultants (invoices, projects, timesheets).
   - Depends on: A2
-- [ ] B2. Implement `/api/subconsultant-dashboard-data` with minimal KPIs and lists for subconsultants.
+- [x] B2. Implement `/api/subconsultant-dashboard-data` with minimal KPIs and lists for subconsultants.
   - Depends on: B1
 - [ ] C1. Build Prime components: `ExecutiveKpis`, `ArAging`, `CashTrend`, `ProjectHealthMatrix`, `UtilizationOverview`, `TopContributors`.
   - Depends on: B1
 - [ ] C2. Replace `/dashboard` client with new IA and tabs; integrate filters/export.
   - Depends on: C1
-- [ ] D1. Build Subconsultant components: `MyInvoiceKpis`, `SubmissionSteps`, `MyInvoicesTable`, `NotificationsPanel`.
+- [x] D1. Build Subconsultant components: `MyInvoiceKpis`, `SubmissionSteps`, `MyInvoicesTable`, `NotificationsPanel`.
   - Depends on: B2
-- [ ] D2. Update `/subconsultant-dashboard` to use isolated components and API.
+- [x] D2. Update `/subconsultant-dashboard` to use isolated components and API.
   - Depends on: D1
 - [ ] E1. Polish: responsiveness, accessibility, performance, docs.
   - Depends on: C2, D2
+
+## Invoicing Workflow Tracker
+
+- [x] P1. Extend types with approvalSnapshot, approvalRunId, pdfVersionCounter, rejectedNotes; add notifications stub.
+  - Depends on: Source of truth in `src/types/index.ts`
+- [x] P2. Implement server actions and guards: submit/resubmit, approve (idempotent + rollups), reject (optional reversal); add history, notifications, and revalidation.
+  - Depends on: P1
+- [ ] P3. PDF generation/versioning flows surfaced via UI; ensure templates and storage are configured; add UI actions.
+  - Depends on: P2
+- [ ] P4. UI gating and detail views updates in `/invoices` and `/invoicing` (action buttons, history panel, version list).
+  - Depends on: P2
+- [ ] P5. Revalidation hooks and notifications integration end-to-end tests.
+  - Depends on: P4

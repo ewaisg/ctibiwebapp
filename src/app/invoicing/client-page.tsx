@@ -17,7 +17,11 @@ import {
   Users,
   Building2,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  History
 } from "lucide-react";
 import { extractId, filterByReference } from "@/lib/document-reference-utils";
 import {
@@ -55,10 +59,21 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
+// NEW: dialogs, switch, toast
 import {
-  DocumentReference,
-  Timestamp
-} from "firebase/firestore";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
+import { DocumentReference, Timestamp } from "firebase/firestore";
 import type {
   Project, 
   Department, 
@@ -132,6 +147,31 @@ interface ProjectFinancialSummary {
   remainingHours: number;
 }
 
+// NEW: Helper functions for currency and percentage formatting
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+const formatPercentage = (value: number, total: number) => {
+  if (total === 0) return '0%';
+  const percentage = (value / total) * 100;
+  return `${percentage.toFixed(0)}%`;
+};
+
+// NEW: Status colors mapping
+const statusColors: Record<'draft'|'submitted'|'approved'|'rejected'|'resubmitted', string> = {
+  draft: "bg-yellow-500 text-white",
+  submitted: "bg-blue-500 text-white",
+  approved: "bg-green-500 text-white",
+  rejected: "bg-red-500 text-white",
+  resubmitted: "bg-blue-500 text-white",
+};
+
 export function InvoicingClientPage({ 
   projects, 
   departments, 
@@ -146,6 +186,7 @@ export function InvoicingClientPage({
 }: InvoicingClientPageProps) {
   const { user } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
   
   // State Management
   const [currentStep, setCurrentStep] = useState<'department' | 'project' | 'form'>('department');
@@ -174,6 +215,29 @@ export function InvoicingClientPage({
 
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // NEW: workflow action state
+  const [actionLoading, setActionLoading] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [reverseApproval, setReverseApproval] = useState(false);
+
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+
+  // Helpers for permissions on existing invoice
+  const isAuthor = useMemo(() => {
+    if (!user || !existingInvoice) return false;
+    const invUserId = typeof (existingInvoice as any).userId === 'object' && (existingInvoice as any).userId?.id ? (existingInvoice as any).userId.id : (existingInvoice as any).userId;
+    return invUserId === user.uid;
+  }, [user, existingInvoice]);
+
+  const isAdminOrPrime = user?.role === 'Admin' || user?.role === 'Prime';
+  const invStatus = (existingInvoice?.status || 'draft').toLowerCase();
+  const canSubmit = isAuthor && (invStatus === 'draft' || invStatus === 'rejected');
+  const canApprove = isAdminOrPrime && (invStatus === 'submitted' || invStatus === 'resubmitted' || invStatus === 'draft');
+  const canReject = isAdminOrPrime && (['submitted','resubmitted','approved'].includes(invStatus));
+  const canGeneratePdf = isAdminOrPrime && invStatus === 'approved';
+  const canRestorePdf = isAdminOrPrime && invStatus === 'approved' && Array.isArray(existingInvoice?.pdfVersions) && (existingInvoice!.pdfVersions as any[]).length > 0;
 
   // Handle initial form data from dialog workflow
   useEffect(() => {
@@ -859,25 +923,114 @@ export function InvoicingClientPage({
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-    }).format(amount);
+  // Handlers for workflow actions (detail page)
+  const handleSubmitForReview = async () => {
+    if (!user || !existingInvoice?.id) return;
+    setActionLoading(true);
+    try {
+      const { submitInvoiceForReview } = await import('./actions');
+      const res = await submitInvoiceForReview(existingInvoice.id, user.uid);
+      if (res?.success) {
+        toast({ title: invStatus === 'rejected' ? 'Resubmitted' : 'Submitted for review' });
+        router.refresh();
+      } else {
+        toast({ title: 'Submit failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Submit failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const formatPercentage = (value: number, total: number) => {
-    if (total === 0) return '0%';
-    return `${Math.round((value / total) * 100)}%`;
+  const handleApprove = async () => {
+    if (!user || !existingInvoice?.id) return;
+    setActionLoading(true);
+    try {
+      const { approveInvoice } = await import('./actions');
+      const runId = `${existingInvoice.id}-${Date.now()}`;
+      const res = await approveInvoice(existingInvoice.id, user.uid, runId);
+      if (res?.success) {
+        toast({ title: 'Invoice approved' });
+        router.refresh();
+      } else {
+        toast({ title: 'Approval failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Approval failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const statusColors: Record<string, string> = {
-    draft: 'bg-gray-100 text-gray-800',
-    submitted: 'bg-blue-100 text-blue-800',
-    approved: 'bg-green-100 text-green-800',
-    rejected: 'bg-red-100 text-red-800',
-    paid: 'bg-emerald-100 text-emerald-800'
+  const openRejectDialog = () => {
+    setRejectReason('');
+    setReverseApproval(invStatus === 'approved');
+    setRejectDialogOpen(true);
+  };
+
+  const handleReject = async () => {
+    if (!user || !existingInvoice?.id) return;
+    setActionLoading(true);
+    try {
+      const { rejectInvoice } = await import('./actions');
+      const res = await rejectInvoice(existingInvoice.id, user.uid, rejectReason || 'Rejected', { reversePriorApproval: reverseApproval });
+      if (res?.success) {
+        toast({ title: 'Invoice rejected' });
+        setRejectDialogOpen(false);
+        router.refresh();
+      } else {
+        toast({ title: 'Rejection failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Rejection failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGenerateApprovedPdf = async () => {
+    if (!user || !existingInvoice?.id) return;
+    setActionLoading(true);
+    try {
+      const { generateInvoicePdf } = await import('./actions');
+      const res = await generateInvoicePdf(existingInvoice.id, user.uid);
+      if (res?.success) {
+        toast({ title: 'PDF generated' });
+        router.refresh();
+      } else {
+        toast({ title: 'PDF generation failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'PDF generation failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openRestoreDialog = () => {
+    if (!existingInvoice?.id) return;
+    setRestoreDialogOpen(true);
+  };
+
+  const handleRestoreVersion = async (versionNumber: number) => {
+    if (!user || !existingInvoice?.id) return;
+    setActionLoading(true);
+    try {
+      const { restoreInvoicePdfVersion } = await import('./actions');
+      const res = await restoreInvoicePdfVersion(existingInvoice.id, user.uid, versionNumber, `Restore v${versionNumber}`);
+      if (res?.success) {
+        toast({ title: `Restored to v${versionNumber}` });
+        setRestoreDialogOpen(false);
+        router.refresh();
+      } else {
+        toast({ title: 'Restore failed', description: (res as any)?.message || (res as any)?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Restore failed', description: e?.message || String(e), variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // Render department selection step
@@ -1043,9 +1196,15 @@ export function InvoicingClientPage({
         </div>
         <div className="flex items-center space-x-2">
           {existingInvoice && (
-            <Badge className={statusColors[existingInvoice.status] || statusColors.draft}>
-              {existingInvoice.status}
-            </Badge>
+            (() => {
+              const st = String(existingInvoice.status || 'draft').toLowerCase() as 'draft'|'submitted'|'approved'|'rejected'|'resubmitted';
+              const safeStatus: 'draft'|'submitted'|'approved'|'rejected'|'resubmitted' = (['draft','submitted','approved','rejected','resubmitted'] as const).includes(st as any) ? st : 'draft';
+              return (
+                <Badge className={statusColors[safeStatus]}>
+                  {existingInvoice.status}
+                </Badge>
+              );
+            })()
           )}
           {isLoadingTimesheet && (
             <Badge variant="outline">
@@ -1644,32 +1803,77 @@ export function InvoicingClientPage({
               <CardTitle>Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button 
-                onClick={() => handleCreateInvoice('submitted')} 
-                className="w-full"
-                disabled={isLoading}
-              >
-                <FileText className="mr-2 h-4 w-4" />
-                {isEditing ? 'Update Invoice' : 'Create Invoice'}
-              </Button>
-              <Button 
-                variant="outline" 
-                className="w-full"
-                disabled={isLoading}
-                onClick={() => handleCreateInvoice('draft')}
-              >
-                <Save className="mr-2 h-4 w-4" />
-                Save as Draft
-              </Button>
-              {existingInvoice?.pdfUrl && (
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  onClick={() => window.open(existingInvoice.pdfUrl, '_blank')}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download PDF
-                </Button>
+              {isEditing && existingInvoice?.id ? (
+                <>
+                  {/* Submit/Resubmit for author */}
+                  {canSubmit && (
+                    <Button onClick={handleSubmitForReview} className="w-full" disabled={actionLoading}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      {invStatus === 'rejected' ? 'Resubmit for Review' : 'Submit for Review'}
+                    </Button>
+                  )}
+
+                  {/* Approve/Reject for Admin/Prime */}
+                  {canApprove && (
+                    <Button onClick={handleApprove} className="w-full" disabled={actionLoading}>
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                  )}
+                  {canReject && (
+                    <Button onClick={openRejectDialog} variant="outline" className="w-full" disabled={actionLoading}>
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject...
+                    </Button>
+                  )}
+
+                  {/* PDF actions for approved */}
+                  {canGeneratePdf && (
+                    <Button onClick={handleGenerateApprovedPdf} variant="secondary" className="w-full" disabled={actionLoading}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Generate/Refresh PDF
+                    </Button>
+                  )}
+                  {existingInvoice?.pdfUrl && (
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => {
+                        const sanitizedUrl = (existingInvoice.pdfUrl || '').replace(/[<>"']/g, '');
+                        if (sanitizedUrl) window.open(sanitizedUrl, '_blank');
+                      }}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download PDF
+                    </Button>
+                  )}
+                  {canRestorePdf && (
+                    <Button onClick={openRestoreDialog} variant="outline" className="w-full" disabled={actionLoading}>
+                      <History className="mr-2 h-4 w-4" />
+                      Restore PDF Version...
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Button 
+                    onClick={() => handleCreateInvoice('submitted')} 
+                    className="w-full"
+                    disabled={isLoading}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    {isEditing ? 'Update Invoice' : 'Create Invoice'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    disabled={isLoading}
+                    onClick={() => handleCreateInvoice('draft')}
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    Save as Draft
+                  </Button>
+                </>
               )}
             </CardContent>
           </Card>
@@ -1720,6 +1924,69 @@ export function InvoicingClientPage({
           )}
         </div>
       </div>
+
+      {/* NEW: Reject Dialog */}
+      <AlertDialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Reject Invoice
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Provide a reason for rejection. Author will be notified.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Reason</Label>
+            <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Explain why this invoice is rejected" />
+            {invStatus === 'approved' && (
+              <div className="flex items-center justify-between border rounded p-3">
+                <div>
+                  <div className="font-medium text-sm">Reverse prior approval rollups</div>
+                  <div className="text-xs text-muted-foreground">Adjust project totals back using snapshot</div>
+                </div>
+                <Switch checked={reverseApproval} onCheckedChange={setReverseApproval} />
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={actionLoading}>
+              Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* NEW: Restore PDF Version Dialog */}
+      <Dialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Restore PDF Version</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {Array.isArray(existingInvoice?.pdfVersions) && (existingInvoice!.pdfVersions as any[]).length ? (
+              <div className="space-y-2">
+                {(existingInvoice!.pdfVersions as any[]).map((v: any) => (
+                  <div key={v.version} className="flex items-center justify-between border rounded p-3">
+                    <div>
+                      <div className="font-medium">Version v{v.version} <span className="text-xs text-muted-foreground">({v.type || 'generated'})</span></div>
+                      <div className="text-xs text-muted-foreground">{v.createdAt?.seconds ? new Date(v.createdAt.seconds * 1000).toLocaleString() : (typeof v.createdAt === 'string' ? new Date(v.createdAt).toLocaleString() : '')}</div>
+                      <div className="text-xs truncate max-w-[320px]">{v.fileName}</div>
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => handleRestoreVersion(v.version)} disabled={actionLoading}>
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No versions available.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

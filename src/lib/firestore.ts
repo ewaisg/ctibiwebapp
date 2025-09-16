@@ -5,21 +5,47 @@ import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { extractId } from '@/lib/document-reference-utils';
 
 // Initialize Firebase Admin for server-side operations
-if (!getApps().length) {
+// Make initialization robust: only use service account when present, support emulator, and allow ADC fallback.
+(() => {
+  if (typeof window !== 'undefined') return; // never init admin on client
+  if (getApps().length) return;
+
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  // Clean up private key formatting if wrapped in quotes and with escaped newlines
+  if (privateKey) {
+    const trimmed = privateKey.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      try { privateKey = JSON.parse(trimmed); } catch { privateKey = trimmed.slice(1, -1); }
+    }
+    privateKey = (privateKey as string).replace(/\\n/g, '\n');
+  }
+
+  const hasServiceAccount = Boolean(clientEmail && privateKey);
+  const usingEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+
   try {
-    initializeApp({
-      credential: cert({
-        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-        clientEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        privateKey: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
+    if (hasServiceAccount) {
+      initializeApp({
+        credential: cert({ projectId, clientEmail, privateKey: privateKey as string }),
+      });
+    } else if (usingEmulator) {
+      // Emulator does not require credentials; admin SDK will route via FIRESTORE_EMULATOR_HOST
+      initializeApp();
+    } else {
+      // Fallback to ADC if configured; if not, skip admin init to avoid noisy errors
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_CLOUD_PROJECT) {
+        initializeApp();
+      }
+    }
   } catch (error) {
     console.error('Firebase Admin initialization error:', error);
   }
-}
+})();
 
-// Use admin SDK for server-side operations when client SDK is not available
+// Use admin SDK for server-side operations when initialized
 const adminDb = getApps().length > 0 ? getAdminFirestore() : null;
 
 // Helper function to serialize Firestore data
@@ -67,7 +93,7 @@ async function getCollectionData(collectionName: string) {
       const snapshot = await getDocs(collectionRef);
       return snapshot.docs.map(doc => serializeFirestoreData({ id: doc.id, ...doc.data() }));
     } catch (error) {
-      console.error(`Error fetching collection with client SDK:`, collectionName);
+      console.error(`Error fetching collection with client SDK: ${collectionName}`, error);
     }
   }
   
@@ -77,11 +103,11 @@ async function getCollectionData(collectionName: string) {
       const snapshot = await adminDb.collection(collectionName).get();
       return snapshot.docs.map(doc => serializeFirestoreData({ id: doc.id, ...doc.data() }));
     } catch (error) {
-      console.error(`Error fetching collection with admin SDK:`, collectionName);
+      console.error(`Error fetching collection with admin SDK: ${collectionName}`, error);
     }
   }
   
-  console.error(`Database not initialized for collection:`, collectionName);
+  console.error(`Database unavailable for collection: ${collectionName}`);
   return [];
 }
 import { Project, Department, Contract, Invoice, Employee, Company, User, CtiTimesheet, Division, Service, Assignment } from '@/types';
@@ -147,7 +173,7 @@ export async function getProjects(): Promise<Project[]> {
     }
   }
   
-  console.error('Database not initialized');
+  console.error('Database unavailable for collection: projects');
   return [];
 }
 

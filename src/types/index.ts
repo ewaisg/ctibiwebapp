@@ -198,6 +198,22 @@ export interface Invoice {
   toDate: Timestamp;
   uploadedFiles: UploadedFile[];
   userId: FlexibleReference; // Document Reference for 'users' collection using uid or string ID
+
+  // Added: Immutable approval snapshot and idempotency
+  approvalSnapshot?: {
+    total: number; // approvedTotals
+    hours: number; // approvedHours
+    createdAt: Timestamp;
+    approvedBy: FlexibleReference; // user reference
+    approvedByName: string; // denormalized name
+  };
+  approvalRunId?: string; // idempotency key for approval transaction
+
+  // Added: PDF version counter to avoid duplicate version numbers
+  pdfVersionCounter?: number;
+
+  // Added: optional rejection notes surfaced to UI (authoritative copy is in history trail)
+  rejectedNotes?: string;
 }
 
 export interface ContractSummary {

@@ -16,10 +16,15 @@ interface ConditionalLayoutProps {
 
 export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   const pathname = usePathname();
+  const [mounted, setMounted] = React.useState(false);
   const isLoginPage = pathname === "/login";
 
-  // If on login page, render without sidebar
-  if (isLoginPage) {
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Prevent flash by not rendering sidebar until mounted
+  if (!mounted || isLoginPage) {
     return <>{children}</>;
   }
 

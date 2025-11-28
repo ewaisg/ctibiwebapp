@@ -5,6 +5,7 @@ import { X, Upload, FileSpreadsheet, CheckCircle, XCircle, Minimize2, Play } fro
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
 import { processTimesheetUpload } from '@/app/(authenticated)/timesheets/actions';
 
 interface UploadProgress {
@@ -25,6 +26,7 @@ interface TimesheetUploadDialogProps {
 }
 
 export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetUploadDialogProps) {
+  const { firebaseUser } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<UploadProgress>({
     currentRow: 0,
@@ -49,6 +51,15 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
   const handleUpload = async () => {
     if (!file) return;
 
+    if (!firebaseUser) {
+      toast({
+        title: "Authentication Error",
+        description: "Please sign in to upload timesheets",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     console.group(`📤 Timesheet upload ${uploadId}`);
     console.log('Starting upload with file:', { name: file.name, size: file.size, type: file.type });
@@ -64,6 +75,13 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
     }));
 
     try {
+      // Get auth token
+      const idToken = await firebaseUser.getIdToken();
+      console.log(`[${uploadId}] Got auth token`);
+
+      const authHeaders = {
+        'Authorization': `Bearer ${idToken}`
+      };
       // Start upload
       const formData = new FormData();
       formData.append('file', file);
@@ -73,7 +91,9 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
       const pollProgress = async () => {
         try {
           console.log(`[${uploadId}] Polling progress...`);
-          const response = await fetch(`/api/timesheet-upload?uploadId=${uploadId}`);
+          const response = await fetch(`/api/timesheet-upload?uploadId=${uploadId}`, {
+            headers: authHeaders
+          });
           console.log(`[${uploadId}] Progress response status:`, response.status);
           if (response.ok) {
             const progressData = await response.json();
@@ -103,6 +123,7 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
       console.log(`[${uploadId}] Sending upload request to /api/timesheet-upload`);
       const uploadPromise = fetch('/api/timesheet-upload', {
         method: 'POST',
+        headers: authHeaders,
         body: formData
       }).then(async (response) => {
         console.log(`[${uploadId}] Upload response status:`, response.status);

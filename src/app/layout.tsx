@@ -7,7 +7,6 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { KeyboardShortcutsDialog } from "@/components/ui/keyboard-shortcuts-dialog";
 import React from "react";
-import { ConditionalLayout } from "@/components/conditional-layout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,6 +22,7 @@ export const metadata: Metadata = {
   title: "CTI BI",
   description: "Comprehensive business intelligence platform for CTI operations",
 };
+
 
 export default function RootLayout({
   children,
@@ -43,9 +43,7 @@ export default function RootLayout({
         </a>
         <ErrorBoundary>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            <ConditionalLayout>
-              {children}
-            </ConditionalLayout>
+            {children}
             <Toaster
               position="top-right"
               toastOptions={{

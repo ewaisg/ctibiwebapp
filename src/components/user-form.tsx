@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createUser, updateUser } from "@/app/admin/actions";
+import { createUser, updateUser } from "@/app/(authenticated)/admin/actions";
 import type { User, Company, UserRole } from "@/types";
 import { toast } from "react-hot-toast";
 import {

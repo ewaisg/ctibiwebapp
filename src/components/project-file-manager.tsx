@@ -34,7 +34,7 @@ import {
   FileSpreadsheet,
   Archive
 } from 'lucide-react';
-import { uploadProjectFile, deleteProjectFile } from '@/app/admin/actions';
+import { uploadProjectFile, deleteProjectFile } from '@/app/(authenticated)/admin/actions';
 import { toast } from 'react-hot-toast';
 
 interface FileItem {

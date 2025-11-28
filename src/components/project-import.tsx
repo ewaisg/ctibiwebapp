@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { Project, Contract, Department, Service } from "@/types";
-import { processProjectImport } from "@/app/admin/actions";
+import { processProjectImport } from "@/app/(authenticated)/admin/actions";
 import { toast } from "react-hot-toast";
 
 interface ProjectImportProps {

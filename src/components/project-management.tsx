@@ -31,7 +31,7 @@ import { ProjectImport } from "@/components/project-import";
 import { ProjectTeamManagement } from "@/components/project-team-management";
 import type { Project, Contract, Company, Department, Division, Service, Employee } from "@/types";
 import { toast } from "react-hot-toast";
-import { updateProject } from "@/app/admin/actions";
+import { updateProject } from "@/app/(authenticated)/admin/actions";
 
 interface ProjectManagementProps {
   projects: Project[];

@@ -117,7 +117,7 @@ export function AutofillForm({ projects, departments = [], onAutofillComplete, o
       setIsProcessing(true);
       
       // Import the autofill action to check real timesheet data
-      const { autofillFromTimesheets } = await import('@/app/invoicing/actions');
+      const { autofillFromTimesheets } = await import('@/app/(authenticated)/invoicing/actions');
       
       const result = await autofillFromTimesheets({
         projectId: watchedProjectId,

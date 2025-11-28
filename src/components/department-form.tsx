@@ -15,7 +15,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Department, Division } from "@/types";
 import { toast } from "react-hot-toast";
-import { createDepartment, updateDepartment } from "@/app/admin/actions";
+import { createDepartment, updateDepartment } from "@/app/(authenticated)/admin/actions";
 
 interface DepartmentFormData {
   departmentName: string;

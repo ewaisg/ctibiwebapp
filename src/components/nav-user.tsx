@@ -12,7 +12,7 @@ import { useTheme } from "next-themes"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
 import toast from "react-hot-toast"
-import { updateTheme } from "@/app/profile/theme-actions"
+import { updateTheme } from "@/app/(authenticated)/profile/theme-actions"
 
 import {
   Avatar,

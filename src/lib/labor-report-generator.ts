@@ -34,7 +34,7 @@ export async function generateDirectLaborReport(
   }
   
   // Fetch fresh timesheet data based on invoice period and project
-  const { getAllTimesheetEntries } = await import('@/app/invoicing/actions');
+  const { getAllTimesheetEntries } = await import('@/app/(authenticated)/invoicing/actions');
   const allTimesheets = await getAllTimesheetEntries();
   
   const fromDate = convertToDate(invoice.fromDate);

@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { createCompany, updateCompany } from "@/app/admin/actions";
+import { createCompany, updateCompany } from "@/app/(authenticated)/admin/actions";
 import type { Company } from "@/types";
 import { toast } from "react-hot-toast";
 

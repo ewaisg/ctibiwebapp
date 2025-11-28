@@ -5,7 +5,7 @@ import { X, Upload, FileSpreadsheet, CheckCircle, XCircle, Minimize2, Play } fro
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
-import { processTimesheetUpload } from '@/app/timesheets/actions';
+import { processTimesheetUpload } from '@/app/(authenticated)/timesheets/actions';
 
 interface UploadProgress {
   currentRow: number;

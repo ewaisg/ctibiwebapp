@@ -1,29 +1,10 @@
-"use client"
+'use client';
 
-import React from "react";
-import { usePathname } from "next/navigation";
-import { AppSidebar } from "@/components/app-sidebar";
-import { Separator } from "@/components/ui/separator";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { AppSidebar } from '@/components/app-sidebar';
+import { Separator } from '@/components/ui/separator';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 
-interface ConditionalLayoutProps {
-  children: React.ReactNode;
-}
-
-export function ConditionalLayout({ children }: ConditionalLayoutProps) {
-  const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
-
-  // If on login page, render without sidebar
-  if (isLoginPage) {
-    return <>{children}</>;
-  }
-
-  // Otherwise, render with sidebar
+export function SidebarLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />

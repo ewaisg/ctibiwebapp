@@ -59,7 +59,7 @@ export function PaymentDrawer({ open, onOpenChange, invoice }: PaymentDrawerProp
     const loadHistory = async () => {
       if (!open || !invoice?.id) return;
       try {
-        const { getPaymentHistory } = await import("@/app/admin/actions");
+        const { getPaymentHistory } = await import("@/app/(authenticated)/admin/actions");
         const res = await getPaymentHistory(invoice.id as string);
         const items = res?.success && Array.isArray(res.items) ? res.items : [];
         setPaymentHistory(items);
@@ -107,7 +107,7 @@ export function PaymentDrawer({ open, onOpenChange, invoice }: PaymentDrawerProp
     }
     setSavingEdit(true);
     try {
-      const { updatePaymentEntry, getPaymentHistory } = await import("@/app/admin/actions");
+      const { updatePaymentEntry, getPaymentHistory } = await import("@/app/(authenticated)/admin/actions");
       const res = await updatePaymentEntry({
         entryId: editTarget.id,
         invoiceId: invoice.id as string,
@@ -149,7 +149,7 @@ export function PaymentDrawer({ open, onOpenChange, invoice }: PaymentDrawerProp
   const voidEntry = async (entry: any) => {
     if (!entry?.id || !invoice?.id) return;
     try {
-      const { voidPaymentEntry, getPaymentHistory } = await import("@/app/admin/actions");
+      const { voidPaymentEntry, getPaymentHistory } = await import("@/app/(authenticated)/admin/actions");
       const res = await voidPaymentEntry({ entryId: entry.id, invoiceId: invoice.id as string });
       if (res?.success) {
         toast({ title: 'Entry voided' });
@@ -226,7 +226,7 @@ export function PaymentDrawer({ open, onOpenChange, invoice }: PaymentDrawerProp
 
     setSavingEntry(true);
     try {
-      const { addPaymentEntry, getPaymentHistory } = await import("@/app/admin/actions");
+      const { addPaymentEntry, getPaymentHistory } = await import("@/app/(authenticated)/admin/actions");
       const payload = {
         invoiceId: invoice.id as string,
         invoiceNumber: (invoice as any).invoiceNumber || (invoice as any).id,
@@ -364,7 +364,7 @@ export function PaymentDrawer({ open, onOpenChange, invoice }: PaymentDrawerProp
               <div className="flex justify-end gap-2">
                 <Button variant="destructive" onClick={async () => {
                   try {
-                    const mod = await import("@/app/admin/actions");
+                    const mod = await import("@/app/(authenticated)/admin/actions");
                     const res = await (mod as any).deleteLatestPaymentEntry(invoice!.id as string);
                     if (res?.success) {
                       toast({ title: 'Latest entry deleted' });

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { Division } from "@/types";
 import { toast } from "react-hot-toast";
-import { createDivision, updateDivision } from "@/app/admin/actions";
+import { createDivision, updateDivision } from "@/app/(authenticated)/admin/actions";
 
 interface DivisionFormData {
   divisionName: string;

@@ -31,7 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import type { User, Company, UserRole } from "@/types";
 import { toast } from "react-hot-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader as AlertHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { deleteUserAndAccount } from "@/app/admin/actions";
+import { deleteUserAndAccount } from "@/app/(authenticated)/admin/actions";
 
 interface UserManagementProps {
   initialUsers: User[];

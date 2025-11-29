@@ -567,7 +567,7 @@ export function TimesheetClientPage({
                 </div>
             </div>
 
-            <Card className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border overflow-visible">
+            <Card className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border overflow-visible">
                 <CardContent className="py-2">
                     <div className="flex flex-wrap items-center gap-2">
                         {/* Time Period - compact tabs */}

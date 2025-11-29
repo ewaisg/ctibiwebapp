@@ -158,10 +158,15 @@ export function TimesheetClientPage({
     };
     const [filters, setFilters] = useState(initialFilters);
 
-    // Clear selections when filters change to avoid confusion
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
+    // Clear selections and reset pagination when filters change
     useEffect(() => {
         setSelectedEmployeeIds(new Set());
         setSelectedEntryIds(new Set());
+        setCurrentPage(1);
     }, [filters]);
 
     const handleFilterChange = (filterName: keyof typeof filters, value: string) => {
@@ -382,6 +387,23 @@ export function TimesheetClientPage({
         });
     }, [employees, entriesByEmployee]);
 
+    // Pagination logic
+    const totalPages = Math.ceil(visibleEmployees.length / itemsPerPage);
+    const paginatedEmployees = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return visibleEmployees.slice(startIndex, endIndex);
+    }, [visibleEmployees, currentPage, itemsPerPage]);
+
+    // Count total entries on current page
+    const currentPageEntryIds = useMemo(() => {
+        const ids = new Set<string>();
+        paginatedEmployees.forEach(emp => {
+            entriesByEmployee[emp.id]?.forEach(entry => ids.add(entry.id));
+        });
+        return ids;
+    }, [paginatedEmployees, entriesByEmployee]);
+
     const metrics = useMemo(() => {
         const totalHours = filteredEntries.reduce((sum, entry) => sum + (entry.totalHoursActual || 0), 0);
         
@@ -525,23 +547,17 @@ export function TimesheetClientPage({
                 <div className="flex items-center gap-2">
                     {selectedEntryIds.size > 0 && (
                         <Button
-                            variant="outline"
+                            variant="destructive"
                             onClick={handleDeleteSelected}
                             disabled={isPending}
-                            className="text-destructive hover:text-destructive"
                         >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Selected ({selectedEntryIds.size})
-                        </Button>
-                    )}
-                    {filteredEntries.length > 0 && (
-                        <Button
-                            variant="destructive"
-                            onClick={handleDeleteAll}
-                            disabled={isPending}
-                        >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete All
+                            {selectedEntryIds.size === 1
+                                ? 'Delete'
+                                : selectedEntryIds.size === filteredEntries.length
+                                ? `Delete All (${selectedEntryIds.size})`
+                                : `Delete (${selectedEntryIds.size})`
+                            }
                         </Button>
                     )}
                     <Button onClick={() => setUploadDialogOpen(true)}>
@@ -811,18 +827,32 @@ export function TimesheetClientPage({
                                 <TableRow>
                                     <TableHead className="w-12">
                                         <Checkbox
-                                            checked={selectedEmployeeIds.size === visibleEmployees.length && visibleEmployees.length > 0}
+                                            checked={paginatedEmployees.length > 0 && paginatedEmployees.every(e => selectedEmployeeIds.has(e.id))}
                                             onCheckedChange={(checked) => {
                                                 if (checked) {
-                                                    setSelectedEmployeeIds(new Set(visibleEmployees.map(e => e.id)));
-                                                    const allEntryIds = new Set<string>();
-                                                    visibleEmployees.forEach(emp => {
-                                                        entriesByEmployee[emp.id]?.forEach(entry => allEntryIds.add(entry.id));
+                                                    // Select all employees on current page
+                                                    const newSelectedEmployees = new Set(selectedEmployeeIds);
+                                                    paginatedEmployees.forEach(emp => newSelectedEmployees.add(emp.id));
+                                                    setSelectedEmployeeIds(newSelectedEmployees);
+
+                                                    // Select all entries on current page
+                                                    const newSelectedEntries = new Set(selectedEntryIds);
+                                                    paginatedEmployees.forEach(emp => {
+                                                        entriesByEmployee[emp.id]?.forEach(entry => newSelectedEntries.add(entry.id));
                                                     });
-                                                    setSelectedEntryIds(allEntryIds);
+                                                    setSelectedEntryIds(newSelectedEntries);
                                                 } else {
-                                                    setSelectedEmployeeIds(new Set());
-                                                    setSelectedEntryIds(new Set());
+                                                    // Deselect all employees on current page
+                                                    const newSelectedEmployees = new Set(selectedEmployeeIds);
+                                                    paginatedEmployees.forEach(emp => newSelectedEmployees.delete(emp.id));
+                                                    setSelectedEmployeeIds(newSelectedEmployees);
+
+                                                    // Deselect all entries on current page
+                                                    const newSelectedEntries = new Set(selectedEntryIds);
+                                                    paginatedEmployees.forEach(emp => {
+                                                        entriesByEmployee[emp.id]?.forEach(entry => newSelectedEntries.delete(entry.id));
+                                                    });
+                                                    setSelectedEntryIds(newSelectedEntries);
                                                 }
                                             }}
                                         />
@@ -838,7 +868,7 @@ export function TimesheetClientPage({
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {visibleEmployees.map((employee) => {
+                                {paginatedEmployees.map((employee) => {
                                     const employeeEntries = entriesByEmployee[employee.id] || [];
                                     const totalHours = employeeEntries.reduce((sum, entry) => sum + (entry.totalHoursActual || 0), 0);
                                     const isExpanded = expandedRows.has(employee.id);
@@ -936,6 +966,72 @@ export function TimesheetClientPage({
                                 })}
                             </TableBody>
                         </Table>
+                    )}
+
+                    {/* Pagination Controls */}
+                    {!isFiltering && visibleEmployees.length > 0 && (
+                        <div className="flex items-center justify-between py-4 border-t">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">Items per page:</span>
+                                <Select
+                                    value={itemsPerPage.toString()}
+                                    onValueChange={(value) => {
+                                        setItemsPerPage(Number(value));
+                                        setCurrentPage(1);
+                                    }}
+                                >
+                                    <SelectTrigger className="w-20">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="10">10</SelectItem>
+                                        <SelectItem value="20">20</SelectItem>
+                                        <SelectItem value="50">50</SelectItem>
+                                        <SelectItem value="100">100</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <span className="text-sm text-muted-foreground">
+                                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, visibleEmployees.length)} of {visibleEmployees.length} employees
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(1)}
+                                    disabled={currentPage === 1}
+                                >
+                                    First
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                >
+                                    Previous
+                                </Button>
+                                <span className="text-sm text-muted-foreground">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    Next
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(totalPages)}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    Last
+                                </Button>
+                            </div>
+                        </div>
                     )}
 
                     {!isFiltering && visibleEmployees.length === 0 && (

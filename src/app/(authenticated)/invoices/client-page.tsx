@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { NewInvoiceDialog } from "@/components/new-invoice-dialog";
 import { DepartmentalCompilationDialog } from "@/components/departmental-compilation-dialog";
+import { OverallProjectsSummaryDialog } from "@/components/overall-projects-summary-dialog";
 import type { Invoice, Project, Department, Employee, Company, User, Contract, TemplateFieldMapping } from "@/types";
 import { Layers, ClipboardList, FileArchive, FileSpreadsheet, FileBox } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -1265,14 +1266,13 @@ export function InvoicesClientPage({
         </DialogContent>
       </Dialog>
       {/* Summary Wizard */}
-      <Dialog open={openSummary} onOpenChange={setOpenSummary}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>Overall Summary Report</DialogTitle>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground">Coming soon</div>
-        </DialogContent>
-      </Dialog>
+      {/* Overall Projects Summary Dialog */}
+      <OverallProjectsSummaryDialog
+        open={openSummary}
+        onOpenChange={setOpenSummary}
+        departments={departments}
+        contracts={contracts || []}
+      />
       {/* Billing Packet Wizard */}
       <Dialog open={openBillingPacket} onOpenChange={setOpenBillingPacket}>
         <DialogContent className="sm:max-w-[760px] max-h-[90vh]">

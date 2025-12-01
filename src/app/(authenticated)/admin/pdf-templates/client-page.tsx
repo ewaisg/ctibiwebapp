@@ -15,7 +15,9 @@ import {
 import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal } from "lucide-react";
 import { TemplateUploadDialog } from "@/components/template-upload-dialog";
 import { TemplateAssignmentDialog } from "@/components/template-assignment-dialog";
+import { TemplateDesignerDialog } from "@/components/template-designer/TemplateDesignerDialog";
 import type { PdfTemplate, TemplateAssignment } from "@/types";
+import type { VisualTemplate } from "@/types/template-designer";
 
 interface PdfTemplatesClientPageProps {
   showBackButton?: boolean;
@@ -29,6 +31,8 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
   const [loading, setLoading] = useState(true);
   const [editingAssignment, setEditingAssignment] = useState<TemplateAssignment | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [designerOpen, setDesignerOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<VisualTemplate | null>(null);
 
   // Load after auth is ready to ensure Authorization header is present
   useEffect(() => {
@@ -142,6 +146,17 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
     setEditDialogOpen(false);
   };
 
+  const handleOpenDesigner = () => {
+    setEditingTemplate(null);
+    setDesignerOpen(true);
+  };
+
+  const handleTemplateSaved = async (template: VisualTemplate) => {
+    // TODO: Save to Firestore
+    console.log('Template saved:', template);
+    loadData();
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading...</div>;
   }
@@ -178,12 +193,18 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
         <TabsContent value="templates" className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-medium">Available Templates</h3>
-            <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Upload Template
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleOpenDesigner}>
+                <Edit className="mr-2 h-4 w-4" />
+                Design Template
               </Button>
-            </TemplateUploadDialog>
+              <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Upload Template
+                </Button>
+              </TemplateUploadDialog>
+            </div>
           </div>
 
           {templates.length === 0 ? (
@@ -344,6 +365,14 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
           <div />
         </TemplateAssignmentDialog>
       )}
+
+      {/* Template Designer Dialog */}
+      <TemplateDesignerDialog
+        open={designerOpen}
+        onOpenChange={setDesignerOpen}
+        templateToEdit={editingTemplate}
+        onTemplateSaved={handleTemplateSaved}
+      />
     </>
   );
 }

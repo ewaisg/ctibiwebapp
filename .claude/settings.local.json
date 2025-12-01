@@ -9,7 +9,9 @@
       "Bash(while read file)",
       "Bash(do sed -i '' -e \"s|@/app/dashboard/|@/app/(authenticated)/dashboard/|g\" -e \"s|@/app/admin/|@/app/(authenticated)/admin/|g\" -e \"s|@/app/invoices/|@/app/(authenticated)/invoices/|g\" -e \"s|@/app/invoicing/|@/app/(authenticated)/invoicing/|g\" -e \"s|@/app/manpower/|@/app/(authenticated)/manpower/|g\" -e \"s|@/app/profile/|@/app/(authenticated)/profile/|g\" -e \"s|@/app/projects/|@/app/(authenticated)/projects/|g\" -e \"s|@/app/timesheets/|@/app/(authenticated)/timesheets/|g\" -e \"s|@/app/utilization/|@/app/(authenticated)/utilization/|g\" \"$file\" done)",
       "Bash(xargs:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(wc:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

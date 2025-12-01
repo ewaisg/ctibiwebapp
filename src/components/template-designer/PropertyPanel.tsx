@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Trash2 } from 'lucide-react';
 import type { TemplateElement, TextElement, ImageElement, RectangleElement, LineElement, TableElement } from '@/types/template-designer';
+import { ImageUploader } from './ImageUploader';
 
 interface PropertyPanelProps {
   selectedElement: TemplateElement | null;
@@ -260,8 +261,16 @@ function ImageProperties({
     <div className="space-y-3">
       <h4 className="text-sm font-medium">Image Properties</h4>
 
+      <ImageUploader
+        currentImageUrl={element.imageUrl}
+        onImageUploaded={(url) => updateField('imageUrl', url)}
+        onImageRemoved={() => updateField('imageUrl', '')}
+      />
+
+      <Separator />
+
       <div>
-        <Label className="text-xs">Image URL</Label>
+        <Label className="text-xs">Image URL (Optional)</Label>
         <Input
           value={element.imageUrl || ''}
           onChange={(e) => updateField('imageUrl', e.target.value)}
@@ -269,7 +278,7 @@ function ImageProperties({
           className="h-8"
         />
         <p className="text-xs text-muted-foreground mt-1">
-          Static URL or data binding
+          Upload an image above or enter a URL/data binding
         </p>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,7 @@ import { DesignerCanvas } from './DesignerCanvas';
 import { ElementToolbox } from './ElementToolbox';
 import { PropertyPanel } from './PropertyPanel';
 import { DataBindingPanel } from './DataBindingPanel';
+import { FirestoreDataBrowser } from './FirestoreDataBrowser';
 
 interface TemplateDesignerDialogProps {
   open: boolean;
@@ -38,6 +39,8 @@ export function TemplateDesignerDialog({
   const [showGrid, setShowGrid] = useState(true);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [history, setHistory] = useState<VisualTemplate[]>([]);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Initialize template
   useEffect(() => {
@@ -47,8 +50,23 @@ export function TemplateDesignerDialog({
       setHistory([initial]);
       setHistoryIndex(0);
       setSelectedElement(null);
+      setLastSaved(null);
+      setHasUnsavedChanges(false);
     }
   }, [open, templateToEdit]);
+
+  // Auto-save functionality
+  useEffect(() => {
+    if (!open || !hasUnsavedChanges || !template.name || template.name === 'Untitled Template') {
+      return;
+    }
+
+    const autoSaveTimer = setTimeout(() => {
+      saveTemplate(true); // Pass true to indicate it's an auto-save
+    }, 30000); // Auto-save after 30 seconds of inactivity
+
+    return () => clearTimeout(autoSaveTimer);
+  }, [template, hasUnsavedChanges, open]);
 
   // Add to history
   const addToHistory = useCallback((newTemplate: VisualTemplate) => {
@@ -56,6 +74,7 @@ export function TemplateDesignerDialog({
     newHistory.push(newTemplate);
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
+    setHasUnsavedChanges(true);
   }, [history, historyIndex]);
 
   // Undo/Redo
@@ -137,13 +156,15 @@ export function TemplateDesignerDialog({
   }, [template, selectedElement, addToHistory]);
 
   // Save template
-  const saveTemplate = async () => {
+  const saveTemplate = async (autoSave = false) => {
     if (!template.name || template.name === 'Untitled Template') {
-      toast({
-        title: 'Template Name Required',
-        description: 'Please enter a name for your template',
-        variant: 'destructive',
-      });
+      if (!autoSave) {
+        toast({
+          title: 'Template Name Required',
+          description: 'Please enter a name for your template',
+          variant: 'destructive',
+        });
+      }
       return;
     }
 
@@ -160,24 +181,42 @@ export function TemplateDesignerDialog({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save template');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save template');
       }
 
-      onTemplateSaved?.(template);
+      const data = await response.json();
 
-      toast({
-        title: 'Template Saved',
-        description: `Template "${template.name}" has been saved successfully.`,
-      });
+      // Update template with saved ID if it's a new template
+      const savedTemplate = {
+        ...template,
+        id: data.templateId,
+        updatedAt: new Date().toISOString(),
+      };
 
-      onOpenChange(false);
+      setTemplate(savedTemplate);
+      setLastSaved(new Date());
+      setHasUnsavedChanges(false);
+      onTemplateSaved?.(savedTemplate);
+
+      if (!autoSave) {
+        toast({
+          title: 'Template Saved',
+          description: `Template "${template.name}" has been saved successfully.`,
+        });
+      }
+
+      // Don't close the dialog - keep editing
+      // User can close manually when done
     } catch (error) {
       console.error('Error saving template:', error);
-      toast({
-        title: 'Save Failed',
-        description: 'Failed to save template. Please try again.',
-        variant: 'destructive',
-      });
+      if (!autoSave) {
+        toast({
+          title: 'Save Failed',
+          description: error instanceof Error ? error.message : 'Failed to save template. Please try again.',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsSaving(false);
     }
@@ -219,9 +258,28 @@ export function TemplateDesignerDialog({
     }
   };
 
+  // Handle field selection from Firestore browser
+  const handleFieldSelect = (fieldPath: string) => {
+    const binding = `{{${fieldPath}}}`;
+
+    // If a text element is selected, insert the binding into it
+    if (selectedElement && selectedElement.type === 'text') {
+      const textElement = selectedElement as any;
+      const currentContent = textElement.content || '';
+      updateElement(selectedElement.id, {
+        content: currentContent + binding,
+      });
+    } else {
+      // Otherwise, copy to clipboard
+      navigator.clipboard.writeText(binding);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[98vw] h-[98vh] p-0 gap-0">
+        <DialogTitle className="sr-only">Template Designer - {template.name || 'Untitled Template'}</DialogTitle>
+
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b bg-background">
           <div className="flex items-center gap-4 flex-1">
@@ -280,6 +338,17 @@ export function TemplateDesignerDialog({
             </div>
           </div>
 
+          {/* Save Status Indicator */}
+          {lastSaved && (
+            <div className="text-xs text-muted-foreground">
+              {hasUnsavedChanges ? (
+                <span className="text-yellow-600">● Unsaved changes</span>
+              ) : (
+                <span className="text-green-600">✓ Saved {formatTimeSince(lastSaved)}</span>
+              )}
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="flex items-center gap-2">
             <Button
@@ -322,7 +391,7 @@ export function TemplateDesignerDialog({
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
-            <Button size="sm" onClick={saveTemplate} disabled={isSaving}>
+            <Button size="sm" onClick={() => saveTemplate(false)} disabled={isSaving}>
               <Save className="h-4 w-4 mr-2" />
               {isSaving ? 'Saving...' : 'Save'}
             </Button>
@@ -337,13 +406,18 @@ export function TemplateDesignerDialog({
           {/* Left Sidebar - Toolbox */}
           <div className="w-64 border-r bg-muted/20 overflow-y-auto">
             <Tabs defaultValue="elements" className="w-full">
-              <TabsList className="w-full justify-start rounded-none">
-                <TabsTrigger value="elements" className="flex-1">Elements</TabsTrigger>
-                <TabsTrigger value="data" className="flex-1">Data</TabsTrigger>
+              <TabsList className="w-full justify-start rounded-none grid grid-cols-3">
+                <TabsTrigger value="elements">Elements</TabsTrigger>
+                <TabsTrigger value="browse">Browse</TabsTrigger>
+                <TabsTrigger value="data">Schema</TabsTrigger>
               </TabsList>
 
               <TabsContent value="elements" className="m-0 p-4">
                 <ElementToolbox onAddElement={addElement} />
+              </TabsContent>
+
+              <TabsContent value="browse" className="m-0 p-4">
+                <FirestoreDataBrowser onFieldSelect={handleFieldSelect} />
               </TabsContent>
 
               <TabsContent value="data" className="m-0 p-4">
@@ -377,4 +451,20 @@ export function TemplateDesignerDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+// Helper function to format time since last save
+function formatTimeSince(date: Date): string {
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return 'recently';
 }

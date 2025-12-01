@@ -10,7 +10,7 @@ const COLLECTION_NAME = 'visual_templates';
 /**
  * Save a visual template to Firestore
  */
-export async function saveVisualTemplate(template: VisualTemplate, userId: string): Promise<void> {
+export async function saveVisualTemplate(template: VisualTemplate, userId: string): Promise<string> {
   if (!adminDb) {
     throw new Error('Firebase Admin not initialized');
   }
@@ -19,7 +19,10 @@ export async function saveVisualTemplate(template: VisualTemplate, userId: strin
     ...template,
     createdBy: userId,
     updatedAt: new Date().toISOString(),
+    isActive: true, // Ensure isActive is always set
   };
+
+  let templateId: string;
 
   if (template.id) {
     // Update existing template
@@ -27,11 +30,15 @@ export async function saveVisualTemplate(template: VisualTemplate, userId: strin
       .collection(COLLECTION_NAME)
       .doc(template.id)
       .set(templateData, { merge: true });
+    templateId = template.id;
   } else {
     // Create new template
     const docRef = await adminDb.collection(COLLECTION_NAME).add(templateData);
     await adminDb.collection(COLLECTION_NAME).doc(docRef.id).update({ id: docRef.id });
+    templateId = docRef.id;
   }
+
+  return templateId;
 }
 
 /**

@@ -11,7 +11,8 @@
       "Bash(xargs:*)",
       "Bash(lsof:*)",
       "Bash(wc:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

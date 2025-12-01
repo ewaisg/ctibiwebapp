@@ -56,11 +56,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await saveVisualTemplate(template, userId);
+      const templateId = await saveVisualTemplate(template, userId);
 
       return NextResponse.json({
         success: true,
         message: 'Template saved successfully',
+        templateId,
       });
     } catch (error) {
       console.error('Error saving visual template:', error);

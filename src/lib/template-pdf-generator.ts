@@ -25,7 +25,7 @@ export async function generatePDFFromTemplate(
   let currentPage = 0;
 
   template.elements.forEach((element) => {
-    if (element.type === 'page-break') {
+    if (element.type === 'pageBreak') {
       currentPage++;
       pages[currentPage] = [];
     } else {

@@ -1529,7 +1529,7 @@ export function InvoicesClientPage({
       </div>
 
       {/* Filters */}
-      <Card className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border overflow-visible">
+      <Card className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border overflow-visible">
         <CardContent className="py-2">
           <div className="flex flex-wrap items-center gap-2">
             <div className="w-full sm:w-auto">
@@ -1539,14 +1539,14 @@ export function InvoicesClientPage({
                 placeholder="Search invoices, project, submitter"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-9 w-full sm:w-[240px] md:w-[280px]"
+                className="h-9 w-full sm:w-60 md:w-[280px]"
               />
             </div>
 
             <div>
               <Label className="sr-only">Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-9 w-[160px]">
+                <SelectTrigger className="h-9 w-40">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent className="z-50">
@@ -1613,12 +1613,12 @@ export function InvoicesClientPage({
             <div className="flex items-center gap-2">
               <div>
                 <Label className="sr-only">From Date</Label>
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-9 w-[160px]" />
+                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-9 w-40" />
               </div>
               <span className="text-muted-foreground text-sm">to</span>
               <div>
                 <Label className="sr-only">To Date</Label>
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 w-[160px]" />
+                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 w-40" />
               </div>
             </div>
 

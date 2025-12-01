@@ -70,7 +70,7 @@ function transformToMWBEReport(aggregatedData: Awaited<ReturnType<typeof aggrega
   // Transform MWBE companies
   const mwbeCompanies: MWBECompany[] = mwbeData.mwbeCompanies.map((company) => ({
     companyName: company.companyName,
-    certificationType: company.certifications,
+    certificationType: company.diversityCertification !== 'None' ? [company.diversityCertification] : [],
     totalInvoiced: company.totalInvoiced,
     percentOfTotal: company.percentOfTotal,
   }));
@@ -92,8 +92,8 @@ function transformToMWBEReport(aggregatedData: Awaited<ReturnType<typeof aggrega
   const certificationBreakdown = Array.from(certMap.entries()).map(([certificationType, data]) => ({
     certificationType,
     totalInvoiced: data.totalInvoiced,
-    percentOfTotal: mwbeData.totalInvoiced > 0
-      ? (data.totalInvoiced / mwbeData.totalInvoiced) * 100
+    percentOfTotal: mwbeData.totalMwbeInvoiced > 0
+      ? (data.totalInvoiced / mwbeData.totalMwbeInvoiced) * 100
       : 0,
     companyCount: data.companies.size,
   })).sort((a, b) => b.totalInvoiced - a.totalInvoiced);
@@ -108,11 +108,11 @@ function transformToMWBEReport(aggregatedData: Awaited<ReturnType<typeof aggrega
     generatedDate,
     contractMwbeGoal: mwbeData.contractMwbeGoal,
     mwbePercentAchieved: mwbeData.mwbePercentAchieved,
-    achievedGoal: mwbeData.achievedGoal,
+    achievedGoal: mwbeData.mwbePercentAchieved >= mwbeData.contractMwbeGoal,
     totalContractValue: grandTotals.newPoAmount,
-    totalInvoiced: mwbeData.totalInvoiced,
+    totalInvoiced: mwbeData.totalMwbeInvoiced + mwbeData.totalNonMwbeInvoiced,
     totalMwbeInvoiced: mwbeData.totalMwbeInvoiced,
-    nonMwbeInvoiced: mwbeData.nonMwbeInvoiced,
+    nonMwbeInvoiced: mwbeData.totalNonMwbeInvoiced,
     mwbeCompanies,
     certificationBreakdown,
     topMwbeCompanies,
@@ -127,19 +127,19 @@ function transformToSubConsultantReport(aggregatedData: Awaited<ReturnType<typeo
 
   // Transform sub-consultants
   const transformedSubs: SubConsultant[] = subConsultants.map((sub) => {
-    const utilizationPercent = sub.commitment > 0
-      ? (sub.invoiced / sub.commitment) * 100
+    const utilizationPercent = sub.totalCommitment > 0
+      ? (sub.totalInvoiced / sub.totalCommitment) * 100
       : 0;
 
     return {
       companyName: sub.companyName,
-      totalCommitment: sub.commitment,
-      totalInvoiced: sub.invoiced,
-      totalPaid: sub.paid,
-      outstanding: sub.outstanding,
-      remainingCommitment: sub.remaining,
+      totalCommitment: sub.totalCommitment,
+      totalInvoiced: sub.totalInvoiced,
+      totalPaid: sub.totalPaid,
+      outstanding: sub.totalInvoiced - sub.totalPaid,
+      remainingCommitment: sub.remainingCommitted,
       utilizationPercent,
-      isOverCommitted: sub.invoiced > sub.commitment,
+      isOverCommitted: sub.totalInvoiced > sub.totalCommitment,
     };
   });
 

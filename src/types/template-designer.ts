@@ -240,7 +240,6 @@ export function createElement(type: TemplateElement['type']): TemplateElement {
         ...base,
         type: 'image',
         imageUrl: '',
-        imageType: 'custom',
         preserveAspectRatio: true,
       };
 
@@ -251,26 +250,11 @@ export function createElement(type: TemplateElement['type']): TemplateElement {
         height: 200,
         dataSource: '{{items}}',
         columns: [
-          { header: 'Column 1', field: '{{name}}', width: 100, align: 'left' },
+          { header: 'Column 1', dataKey: '{{name}}', width: 100 },
         ],
-        headerStyle: {
-          fontSize: 10,
-          fontWeight: 'bold',
-          color: '#FFFFFF',
-          backgroundColor: '#2B3674',
-          padding: 4,
-        },
-        rowStyle: {
-          fontSize: 9,
-          fontWeight: 'normal',
-          color: '#000000',
-          backgroundColor: '#FFFFFF',
-          padding: 4,
-        },
         showBorders: true,
         borderColor: '#CCCCCC',
         borderWidth: 1,
-        rowHeight: 20,
       };
 
     case 'line':
@@ -278,10 +262,8 @@ export function createElement(type: TemplateElement['type']): TemplateElement {
         ...base,
         type: 'line',
         height: 0,
-        x2: 300,
-        y2: 100,
-        strokeColor: '#000000',
-        strokeWidth: 1,
+        color: '#000000',
+        lineWidth: 1,
       };
 
     case 'rectangle':

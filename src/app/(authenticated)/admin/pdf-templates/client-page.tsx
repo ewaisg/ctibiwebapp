@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,11 +16,16 @@ import {
 import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal } from "lucide-react";
 import { TemplateUploadDialog } from "@/components/template-upload-dialog";
 import { TemplateAssignmentDialog } from "@/components/template-assignment-dialog";
-import { TemplateDesignerDialog } from "@/components/template-designer/TemplateDesignerDialog";
 import { PdfFieldMapper } from "@/components/pdf-field-mapper/PdfFieldMapper";
 import type { PdfTemplate, TemplateAssignment } from "@/types";
 import type { VisualTemplate } from "@/types/template-designer";
 import type { MappedPdfTemplate } from "@/types/pdf-field-mapper";
+
+// Dynamic import for TemplateDesignerDialog to avoid SSR issues with fabric.js
+const TemplateDesignerDialog = dynamic(
+  () => import("@/components/template-designer/TemplateDesignerDialog").then(mod => ({ default: mod.TemplateDesignerDialog })),
+  { ssr: false }
+);
 
 interface PdfTemplatesClientPageProps {
   showBackButton?: boolean;

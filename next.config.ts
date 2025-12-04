@@ -1,16 +1,25 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   serverExternalPackages: ['handlebars'],
+  turbopack: {
+    // Empty config to silence Turbopack warning
+  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // Don't bundle handlebars for the client
+      // Don't bundle server-only packages for the client
       config.resolve.alias = {
         ...config.resolve.alias,
         handlebars: false,
+        canvas: false,
+        jsdom: false,
+      };
+
+      // Ignore node modules that are not needed on client side
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        canvas: false,
+        jsdom: false,
       };
     }
     return config;

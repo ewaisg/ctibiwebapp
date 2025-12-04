@@ -149,17 +149,24 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
   const pdfToCanvas = (rect: any) => {
     if (!viewport || !rect) return null;
 
+    // Scale the rect values based on current zoom scale
+    const scaledX = rect.x * scale;
+    const scaledY = rect.y * scale;
+    const scaledWidth = rect.width * scale;
+    const scaledHeight = rect.height * scale;
+
     // PDF coordinates: origin at bottom-left
     // Canvas coordinates: origin at top-left
     // Need to flip Y axis
-    const x = rect.x;
-    const y = viewport.height - rect.y - rect.height; // Flip Y coordinate
+    // viewport.height is already scaled
+    const x = scaledX;
+    const y = viewport.height - scaledY - scaledHeight;
 
     return {
       left: x,
       top: y,
-      width: rect.width,
-      height: rect.height,
+      width: scaledWidth,
+      height: scaledHeight,
     };
   };
 
@@ -167,6 +174,15 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
   const handleFieldClick = (field: PdfFieldInfo, event: React.MouseEvent) => {
     event.stopPropagation();
     onFieldClick(field);
+  };
+
+  const fitToWidth = async () => {
+    if (!containerRef.current || !pdfDoc) return;
+    const page = await pdfDoc.getPage(currentPage);
+    const viewport = page.getViewport({ scale: 1 });
+    const containerWidth = containerRef.current.clientWidth;
+    const newScale = (containerWidth - 40) / viewport.width;
+    setScale(newScale);
   };
 
   if (isLoading) {
@@ -213,15 +229,21 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
 
         <div className="flex items-center gap-2">
           <button
+            onClick={fitToWidth}
+            className="px-3 py-1 border rounded text-sm hover:bg-gray-100"
+          >
+            Fit Width
+          </button>
+          <button
             onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}
-            className="px-3 py-1 border rounded"
+            className="px-3 py-1 border rounded hover:bg-gray-100"
           >
             -
           </button>
-          <span className="text-sm">{Math.round(scale * 100)}%</span>
+          <span className="text-sm w-12 text-center">{Math.round(scale * 100)}%</span>
           <button
-            onClick={() => setScale((s) => Math.min(2, s + 0.25))}
-            className="px-3 py-1 border rounded"
+            onClick={() => setScale((s) => Math.min(3, s + 0.25))}
+            className="px-3 py-1 border rounded hover:bg-gray-100"
           >
             +
           </button>
@@ -229,11 +251,12 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
       </div>
 
       {/* PDF Canvas with Field Overlays */}
-      <div ref={containerRef} className="relative border rounded bg-gray-50 overflow-auto" style={{ maxHeight: '900px' }}>
-        <div className="relative inline-block">
-          <canvas ref={canvasRef} className="block" />
+      <div ref={containerRef} className="relative border rounded bg-gray-50 overflow-auto" style={{ height: '75vh' }}>
+        <div className="relative inline-block min-w-full min-h-full flex justify-center bg-gray-200/50 p-4">
+          <div className="relative shadow-lg">
+            <canvas ref={canvasRef} className="block bg-white" />
 
-          {/* Field Overlays */}
+            {/* Field Overlays */}
           {currentPageFields.map((field) => {
             const canvasRect = pdfToCanvas(field.rect);
             if (!canvasRect) return null;
@@ -268,6 +291,7 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
               </div>
             );
           })}
+          </div>
         </div>
       </div>
 

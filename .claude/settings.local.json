@@ -14,7 +14,9 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "Bash(npm run dev:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

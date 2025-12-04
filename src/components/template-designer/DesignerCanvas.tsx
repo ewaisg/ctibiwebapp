@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { fabric } from 'fabric';
 import type { VisualTemplate, TemplateElement, TextElement, ImageElement, RectangleElement, LineElement, TableElement } from '@/types/template-designer';
+
+// Dynamically import fabric only on client side
+let fabric: any = null;
+if (typeof window !== 'undefined') {
+  fabric = require('fabric').fabric;
+}
 
 interface DesignerCanvasProps {
   template: VisualTemplate;
@@ -29,7 +34,7 @@ export function DesignerCanvas({
 
   // Initialize Fabric.js canvas
   useEffect(() => {
-    if (!canvasRef.current || fabricCanvasRef.current) return;
+    if (!fabric || !canvasRef.current || fabricCanvasRef.current) return;
 
     const canvas = new fabric.Canvas(canvasRef.current, {
       width: template.width,
@@ -163,7 +168,7 @@ export function DesignerCanvas({
         case 'image': {
           const imgEl = element as ImageElement;
           if (imgEl.imageUrl) {
-            fabric.Image.fromURL(imgEl.imageUrl, (img) => {
+            fabric.Image.fromURL(imgEl.imageUrl, (img: any) => {
               img.set({
                 left: imgEl.x,
                 top: imgEl.y,

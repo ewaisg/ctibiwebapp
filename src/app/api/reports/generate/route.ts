@@ -4,6 +4,100 @@ import { adminDb } from '@/lib/firebase-admin';
 import { getVisualTemplate } from '@/lib/visual-template-firestore';
 import { generatePDFFromTemplate } from '@/lib/template-pdf-generator';
 import { generateSampleData } from '@/lib/template-data-schemas';
+import { getReportTemplate } from '@/lib/report-templates';
+import { getProcessor } from '@/lib/report-processors';
+
+/**
+ * GET /api/reports/generate
+ * Get report data without generating PDF (for testing and preview)
+ */
+export async function GET(request: NextRequest) {
+  const handler = await withAuth(async (req) => {
+    try {
+      const { searchParams } = new URL(req.url);
+      const reportTemplateId = searchParams.get('reportTemplateId');
+      const dateFrom = searchParams.get('dateFrom');
+      const dateTo = searchParams.get('dateTo');
+      const departmentId = searchParams.get('departmentId');
+      const projectId = searchParams.get('projectId');
+      const contractId = searchParams.get('contractId');
+      const status = searchParams.get('status');
+
+      if (!reportTemplateId) {
+        return NextResponse.json(
+          { error: 'Report template ID is required' },
+          { status: 400 }
+        );
+      }
+
+      const reportTemplate = getReportTemplate(reportTemplateId);
+      if (!reportTemplate) {
+        return NextResponse.json(
+          { error: 'Report template not found' },
+          { status: 404 }
+        );
+      }
+
+      if (!reportTemplate.processorFunction) {
+        return NextResponse.json(
+          { error: 'Report template does not have a processor function' },
+          { status: 400 }
+        );
+      }
+
+      const processor = getProcessor(reportTemplate.processorFunction);
+      if (!processor) {
+        return NextResponse.json(
+          { error: 'Processor function not found' },
+          { status: 404 }
+        );
+      }
+
+      // Build filters
+      const filters: any = {};
+      if (dateFrom) filters.dateFrom = dateFrom;
+      if (dateTo) filters.dateTo = dateTo;
+      if (departmentId) filters.departmentId = departmentId;
+      if (projectId) filters.projectId = projectId;
+      if (contractId) filters.contractId = contractId;
+      if (status) filters.status = status;
+
+      console.log(`[Reports GET] Processing report: ${reportTemplateId} with filters:`, filters);
+
+      // Run processor
+      const result = await processor(filters);
+
+      if (!result.success) {
+        return NextResponse.json(
+          { error: result.error || 'Failed to process report data' },
+          { status: 500 }
+        );
+      }
+
+      // Return JSON data
+      return NextResponse.json({
+        success: true,
+        reportTemplate: {
+          id: reportTemplate.id,
+          name: reportTemplate.name,
+          description: reportTemplate.description,
+          category: reportTemplate.category,
+        },
+        data: result.data,
+        hasData: result.data?.hasData || false,
+      });
+    } catch (error) {
+      console.error('Error fetching report data:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch report data', details: error instanceof Error ? error.message : 'Unknown error' },
+        { status: 500 }
+      );
+    }
+  });
+
+  const limited = withRateLimit(handler);
+  return limited(request);
+}
 
 /**
  * POST /api/reports/generate
@@ -18,7 +112,8 @@ export async function POST(request: NextRequest) {
         templateSource = 'visual',
         dataSource,
         filters = {},
-        preview = false
+        preview = false,
+        reportTemplateId, // Optional: ID of pre-built report template
       } = body;
 
       if (!templateId || !dataSource) {
@@ -58,8 +153,48 @@ export async function POST(request: NextRequest) {
         // Use sample data for preview or if DB not available
         data = generateSampleData(templateTypeValue || 'invoice');
       } else {
-        // Fetch real data from Firestore
-        data = await fetchDataFromSource(dataSource, filters);
+        // Check if using a pre-built report template with processor
+        if (reportTemplateId) {
+          const reportTemplate = getReportTemplate(reportTemplateId);
+          if (reportTemplate && reportTemplate.processorFunction) {
+            const processor = getProcessor(reportTemplate.processorFunction);
+            if (processor) {
+              console.log(`[Reports] Using processor: ${reportTemplate.processorFunction}`);
+              const result = await processor(filters);
+
+              if (!result.success) {
+                return NextResponse.json(
+                  { error: result.error || 'Failed to process report data' },
+                  { status: 500 }
+                );
+              }
+
+              // Check if data is available
+              if (!result.data?.hasData) {
+                return NextResponse.json(
+                  {
+                    error: 'No data available for the selected filters',
+                    message: 'Try adjusting your date range, department, project, or other filters.',
+                    noData: true,
+                  },
+                  { status: 404 }
+                );
+              }
+
+              data = result.data;
+            } else {
+              console.warn(`[Reports] Processor not found: ${reportTemplate.processorFunction}`);
+              // Fall back to basic fetch
+              data = await fetchDataFromSource(dataSource, filters);
+            }
+          } else {
+            // No processor, use basic fetch
+            data = await fetchDataFromSource(dataSource, filters);
+          }
+        } else {
+          // Fetch real data from Firestore (basic query)
+          data = await fetchDataFromSource(dataSource, filters);
+        }
       }
 
       // Generate PDF
@@ -102,36 +237,71 @@ async function fetchDataFromSource(source: string, filters: any): Promise<any> {
     throw new Error('Database not initialized');
   }
 
-  let query = adminDb.collection(source) as any;
+  let query: any = adminDb.collection(source);
+
+  // Determine which date field to use based on collection
+  const dateField = getDateFieldForCollection(source);
 
   // Apply date filters if provided
   if (filters.dateFrom) {
     const fromDate = new Date(filters.dateFrom);
-    query = query.where('createdAt', '>=', fromDate);
+    fromDate.setHours(0, 0, 0, 0);
+    query = query.where(dateField, '>=', fromDate);
   }
 
   if (filters.dateTo) {
     const toDate = new Date(filters.dateTo);
-    toDate.setHours(23, 59, 59, 999); // End of day
-    query = query.where('createdAt', '<=', toDate);
+    toDate.setHours(23, 59, 59, 999);
+    query = query.where(dateField, '<=', toDate);
   }
 
-  // Apply other filters
+  // Apply department filter
   if (filters.departmentId) {
-    query = query.where('departmentId', '==', filters.departmentId);
+    const departmentField = getDepartmentFieldForCollection(source);
+    if (departmentField) {
+      // Check if field should be a reference or string
+      const usesReference = collectionUsesReferences(source, 'department');
+      if (usesReference) {
+        query = query.where(departmentField, '==', adminDb.doc(`departments/${filters.departmentId}`));
+      } else {
+        query = query.where(departmentField, '==', filters.departmentId);
+      }
+    }
   }
 
+  // Apply project filter
   if (filters.projectId) {
-    query = query.where('projectId', '==', filters.projectId);
+    const projectField = getProjectFieldForCollection(source);
+    if (projectField) {
+      const usesReference = collectionUsesReferences(source, 'project');
+      if (usesReference) {
+        query = query.where(projectField, '==', adminDb.doc(`projects/${filters.projectId}`));
+      } else {
+        query = query.where(projectField, '==', filters.projectId);
+      }
+    }
   }
 
+  // Apply contract filter
   if (filters.contractId) {
-    query = query.where('contractId', '==', filters.contractId);
+    const contractField = getContractFieldForCollection(source);
+    if (contractField) {
+      const usesReference = collectionUsesReferences(source, 'contract');
+      if (usesReference) {
+        query = query.where(contractField, '==', adminDb.doc(`contracts/${filters.contractId}`));
+      } else {
+        query = query.where(contractField, '==', filters.contractId);
+      }
+    }
   }
 
+  // Apply status filter
   if (filters.status) {
     query = query.where('status', '==', filters.status);
   }
+
+  // Order by date field
+  query = query.orderBy(dateField, 'desc');
 
   // Limit results to prevent performance issues
   query = query.limit(100);
@@ -139,15 +309,104 @@ async function fetchDataFromSource(source: string, filters: any): Promise<any> {
   const snapshot = await query.get();
 
   if (snapshot.empty) {
+    console.log(`[Reports] No data found for source: ${source} with filters:`, filters);
     // Return sample data if no results found
     return generateSampleData('custom');
   }
 
-  // Convert documents to array of data
-  const data = snapshot.docs.map((doc: any) => ({
-    id: doc.id,
-    ...doc.data()
+  // Convert documents to array of data, handling DocumentReferences
+  const data = await Promise.all(snapshot.docs.map(async (doc: any) => {
+    const docData = doc.data();
+    const processedData: any = { id: doc.id };
+
+    // Convert DocumentReferences to IDs
+    for (const [key, value] of Object.entries(docData)) {
+      if (value && typeof value === 'object' && value.constructor.name === 'DocumentReference') {
+        processedData[key] = (value as any).id;
+      } else {
+        processedData[key] = value;
+      }
+    }
+
+    return processedData;
   }));
 
+  console.log(`[Reports] Fetched ${data.length} records from ${source}`);
+
   return { items: data, count: data.length };
+}
+
+/**
+ * Get the appropriate date field for a collection
+ */
+function getDateFieldForCollection(collection: string): string {
+  switch (collection) {
+    case 'invoices':
+      return 'createdAt';
+    case 'timesheets':
+      return 'timecardDate';
+    case 'projects':
+      return 'createdAt';
+    case 'contracts':
+      return 'effectiveDate';
+    default:
+      return 'createdAt';
+  }
+}
+
+/**
+ * Get the department field name for a collection
+ */
+function getDepartmentFieldForCollection(collection: string): string | null {
+  switch (collection) {
+    case 'projects':
+    case 'invoices':
+    case 'timesheets':
+    case 'employees':
+      return 'departmentId';
+    case 'departments':
+      return null; // Can't filter departments by department
+    default:
+      return 'departmentId';
+  }
+}
+
+/**
+ * Get the project field name for a collection
+ */
+function getProjectFieldForCollection(collection: string): string | null {
+  switch (collection) {
+    case 'invoices':
+    case 'timesheets':
+      return 'projectId';
+    case 'projects':
+      return null; // Can't filter projects by project
+    default:
+      return 'projectId';
+  }
+}
+
+/**
+ * Get the contract field name for a collection
+ */
+function getContractFieldForCollection(collection: string): string | null {
+  switch (collection) {
+    case 'invoices':
+    case 'projects':
+      return 'contractId';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Check if a collection uses DocumentReferences for a field type
+ */
+function collectionUsesReferences(collection: string, fieldType: 'department' | 'project' | 'contract'): boolean {
+  // Most collections use DocumentReferences for relationships
+  // Timesheets might use strings depending on implementation
+  if (collection === 'timesheets') {
+    return false; // Timesheets use string IDs
+  }
+  return true; // Default to references
 }

@@ -127,8 +127,8 @@ export function validateTemplateAssignment(assignment: Partial<TemplateAssignmen
     errors.push('Template ID is required');
   }
 
-  if (!assignment.templateType || !['Invoice', 'CoverPage', 'Report'].includes(assignment.templateType)) {
-    errors.push('Invalid template type. Must be: Invoice, CoverPage, or Report');
+  if (!assignment.templateType || !['Invoice', 'CoverPage', 'Report', 'Custom'].includes(assignment.templateType)) {
+    errors.push('Invalid template type. Must be: Invoice, CoverPage, Report, or Custom');
   }
 
   return {
@@ -239,6 +239,7 @@ function stripUndefinedDeep<T>(value: T): T {
 export function sanitizeAssignmentData(assignment: any): Partial<TemplateAssignment> {
   const assignmentType = sanitizeTemplateValue(assignment.assignmentType);
   const templateType = sanitizeTemplateValue(assignment.templateType);
+  const templateSource = sanitizeTemplateValue(assignment.templateSource) || 'pdf';
   return {
     assignmentType: ['Contract', 'Department', 'Project', 'Global'].includes(assignmentType)
       ? assignmentType as 'Contract' | 'Department' | 'Project' | 'Global'
@@ -247,9 +248,12 @@ export function sanitizeAssignmentData(assignment: any): Partial<TemplateAssignm
     assignmentName: sanitizeTemplateValue(assignment.assignmentName),
     templateId: sanitizeTemplateValue(assignment.templateId),
     templateName: sanitizeTemplateValue(assignment.templateName),
-    templateType: ['Invoice', 'CoverPage', 'Report'].includes(templateType)
-      ? templateType as 'Invoice' | 'CoverPage' | 'Report'
+    templateType: ['Invoice', 'CoverPage', 'Report', 'Custom'].includes(templateType)
+      ? templateType as 'Invoice' | 'CoverPage' | 'Report' | 'Custom'
       : undefined,
+    templateSource: ['pdf', 'visual'].includes(templateSource)
+      ? templateSource as 'pdf' | 'visual'
+      : 'pdf',
     isActive: Boolean(assignment.isActive !== false), // Default to true
     createdBy: sanitizeTemplateValue(assignment.createdBy),
     createdByName: sanitizeTemplateValue(assignment.createdByName)

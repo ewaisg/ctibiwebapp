@@ -12,7 +12,9 @@
       "Bash(lsof:*)",
       "Bash(wc:*)",
       "Bash(npm install:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm run dev:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

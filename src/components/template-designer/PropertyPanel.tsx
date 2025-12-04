@@ -6,9 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
-import { Trash2 } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import type { TemplateElement, TextElement, ImageElement, RectangleElement, LineElement, TableElement } from '@/types/template-designer';
 import { ImageUploader } from './ImageUploader';
+import { DataMappingPanel } from './DataMappingPanel';
 
 interface PropertyPanelProps {
   selectedElement: TemplateElement | null;
@@ -155,16 +156,25 @@ function TextProperties({
     <div className="space-y-3">
       <h4 className="text-sm font-medium">Text Properties</h4>
 
+      {/* Data Mapping Panel */}
+      <DataMappingPanel
+        currentBinding={element.content}
+        elementType="text"
+        onBindingChange={(binding) => updateField('content', binding)}
+      />
+
+      <Separator />
+
       <div>
-        <Label className="text-xs">Content</Label>
+        <Label className="text-xs">Advanced: Manual Content</Label>
         <Textarea
           value={element.content}
           onChange={(e) => updateField('content', e.target.value)}
           placeholder="Enter text or {{dataBinding}}"
-          className="min-h-[80px] text-sm"
+          className="min-h-[60px] text-sm"
         />
         <p className="text-xs text-muted-foreground mt-1">
-          Use {'{'}{'{'} fieldName {'}'}{'}'}  for data binding
+          For advanced users: Edit binding syntax directly
         </p>
       </div>
 
@@ -261,24 +271,24 @@ function ImageProperties({
     <div className="space-y-3">
       <h4 className="text-sm font-medium">Image Properties</h4>
 
-      <ImageUploader
-        currentImageUrl={element.imageUrl}
-        onImageUploaded={(url) => updateField('imageUrl', url)}
-        onImageRemoved={() => updateField('imageUrl', '')}
+      {/* Data Mapping Panel for dynamic image URLs */}
+      <DataMappingPanel
+        currentBinding={element.imageUrl || ''}
+        elementType="image"
+        onBindingChange={(binding) => updateField('imageUrl', binding)}
       />
 
       <Separator />
 
       <div>
-        <Label className="text-xs">Image URL (Optional)</Label>
-        <Input
-          value={element.imageUrl || ''}
-          onChange={(e) => updateField('imageUrl', e.target.value)}
-          placeholder="https://... or {{imageFieldName}}"
-          className="h-8"
+        <Label className="text-xs">Or Upload Image</Label>
+        <ImageUploader
+          currentImageUrl={element.imageUrl}
+          onImageUploaded={(url) => updateField('imageUrl', url)}
+          onImageRemoved={() => updateField('imageUrl', '')}
         />
         <p className="text-xs text-muted-foreground mt-1">
-          Upload an image above or enter a URL/data binding
+          Upload a static image file
         </p>
       </div>
 
@@ -387,23 +397,47 @@ function TableProperties({
     <div className="space-y-3">
       <h4 className="text-sm font-medium">Table Properties</h4>
 
-      <div>
-        <Label className="text-xs">Data Source</Label>
-        <Input
-          value={element.dataSource || ''}
-          onChange={(e) => updateField('dataSource', e.target.value)}
-          placeholder="{{arrayFieldName}}"
-          className="h-8"
-        />
-        <p className="text-xs text-muted-foreground mt-1">
-          Bind to an array field
-        </p>
-      </div>
+      {/* Data Mapping Panel for table data source */}
+      <DataMappingPanel
+        currentBinding={element.dataSource || ''}
+        elementType="table"
+        onBindingChange={(binding) => updateField('dataSource', binding)}
+      />
+
+      <Separator />
+
+      {element.dataSource && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
+          <strong>Data Source:</strong> {element.dataSource}
+          <br />
+          <span className="text-xs text-muted-foreground">
+            This table will create one row for each item in this array
+          </span>
+        </div>
+      )}
 
       <div>
         <Label className="text-xs mb-2 block">Columns</Label>
+        <p className="text-xs text-muted-foreground mb-2">
+          Define what data to show in each column. Use item.fieldName to reference fields from your data source.
+        </p>
         {element.columns.map((col, index) => (
-          <div key={index} className="mb-2 p-2 border rounded">
+          <div key={index} className="mb-2 p-3 border rounded bg-background">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs font-medium">Column {index + 1}</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => {
+                  const newColumns = element.columns.filter((_, i) => i !== index);
+                  updateField('columns', newColumns);
+                }}
+                title="Remove column"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
             <Input
               value={col.header}
               onChange={(e) => {
@@ -411,8 +445,8 @@ function TableProperties({
                 newColumns[index] = { ...col, header: e.target.value };
                 updateField('columns', newColumns);
               }}
-              placeholder="Header"
-              className="h-7 mb-1"
+              placeholder="Column Header (e.g., Description)"
+              className="h-8 mb-2 text-sm"
             />
             <Input
               value={col.dataKey}
@@ -421,9 +455,12 @@ function TableProperties({
                 newColumns[index] = { ...col, dataKey: e.target.value };
                 updateField('columns', newColumns);
               }}
-              placeholder="{{dataKey}}"
-              className="h-7"
+              placeholder="Field (e.g., item.description)"
+              className="h-8 text-sm"
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Use <code className="bg-muted px-1 rounded">item.fieldName</code> to access fields
+            </p>
           </div>
         ))}
         <Button
@@ -432,14 +469,29 @@ function TableProperties({
           onClick={() => {
             const newColumns = [
               ...element.columns,
-              { header: 'New Column', dataKey: '', width: 100 },
+              { header: 'New Column', dataKey: 'item.field', width: 100 },
             ];
             updateField('columns', newColumns);
           }}
           className="w-full"
         >
-          Add Column
+          + Add Column
         </Button>
+      </div>
+
+      <Separator />
+
+      <div>
+        <Label className="text-xs">Advanced: Manual Data Source</Label>
+        <Input
+          value={element.dataSource || ''}
+          onChange={(e) => updateField('dataSource', e.target.value)}
+          placeholder="{{arrayFieldName}}"
+          className="h-8"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Manually edit the array binding
+        </p>
       </div>
     </div>
   );

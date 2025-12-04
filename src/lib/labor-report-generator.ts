@@ -102,7 +102,23 @@ export async function generateDirectLaborReport(
 }
 
 export function shouldGenerateLaborReport(invoice: Invoice): boolean {
-  const shouldGenerate = invoice.autofillSource === 'timesheet';
-  console.log(`[Labor Report] Invoice ${invoice.id} - autofillSource: ${invoice.autofillSource}, shouldGenerate: ${shouldGenerate}`);
+  // Check if autofillSource is explicitly set to 'timesheet'
+  const hasTimesheetSource = invoice.autofillSource === 'timesheet';
+
+  // Also check if invoice has items with employee data (indicates timesheet origin)
+  const hasEmployeeItems = invoice.invoiceItems &&
+    invoice.invoiceItems.length > 0 &&
+    invoice.invoiceItems.some(item => item.employeeId);
+
+  const shouldGenerate = hasTimesheetSource || hasEmployeeItems;
+
+  console.log(`[Labor Report] Invoice ${invoice.invoiceNumber || invoice.id}:`, {
+    autofillSource: invoice.autofillSource,
+    hasTimesheetSource,
+    hasEmployeeItems,
+    itemCount: invoice.invoiceItems?.length || 0,
+    shouldGenerate
+  });
+
   return shouldGenerate;
 }

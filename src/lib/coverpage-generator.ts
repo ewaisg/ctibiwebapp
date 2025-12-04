@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { adminDb, getAdminStorage } from '@/lib/firebase-admin';
-import { resolveTemplate, mapTemplateData } from '@/lib/template-resolver';
+import { resolveTemplate, mapTemplateData, type ResolvedTemplate } from '@/lib/template-resolver';
+import { generatePDFFromTemplate } from '@/lib/template-pdf-generator';
 import { sanitizeForLog, sanitizeTemplateValue } from '@/lib/security-utils';
 
 export interface GenerateCoverPageParams {
@@ -20,30 +21,9 @@ export async function generateCoverPage(params: GenerateCoverPageParams): Promis
   }
 
   // Resolve template for category CoverPage with fallback chain
-  const template = await resolveTemplate('CoverPage', projectId || '', contractId || '', departmentId);
-  if (!template) {
+  const resolved = await resolveTemplate('CoverPage', projectId || '', contractId || '', departmentId);
+  if (!resolved) {
     throw new Error('No CoverPage template found for the provided scope');
-  }
-
-  // Load PDF bytes
-  let pdfTemplateBytes: Buffer | undefined;
-  try {
-    if ((template as any).base64Data) {
-      pdfTemplateBytes = Buffer.from((template as any).base64Data, 'base64');
-    } else if ((template as any).storageUrl && (template as any).storageUrl.startsWith('gs://')) {
-      const storage = getAdminStorage();
-      const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-      if (!bucketName) throw new Error('Storage bucket env not set');
-      const relativePath = (template as any).storageUrl.replace(`gs://${bucketName}/`, '');
-      const [bytes] = await storage.bucket(bucketName).file(relativePath).download();
-      pdfTemplateBytes = Buffer.from(bytes);
-    }
-  } catch (e) {
-    console.error('Failed to load template bytes for CoverPage:', sanitizeForLog(e));
-  }
-
-  if (!pdfTemplateBytes) {
-    throw new Error('Unable to load template bytes');
   }
 
   // Fetch department details for mapping
@@ -68,12 +48,51 @@ export async function generateCoverPage(params: GenerateCoverPageParams): Promis
     billingFrom,
     billingTo,
     periodLabel: sanitizeTemplateValue(periodLabel),
+    fromDate,
+    toDate,
   };
+
+  // Check if it's a visual template
+  if (resolved.source === 'visual') {
+    console.log('[CoverPage] Generating from visual template');
+    const visualPdfBytes = await generatePDFFromTemplate(
+      resolved.template as any,
+      {
+        ...invoiceData,
+        manual: manualData || {}
+      }
+    );
+    return Buffer.from(visualPdfBytes);
+  }
+
+  // Otherwise, use PDF template form filling
+  const template = resolved.template as any;
+
+  // Load PDF bytes
+  let pdfTemplateBytes: Buffer | undefined;
+  try {
+    if (template.base64Data) {
+      pdfTemplateBytes = Buffer.from(template.base64Data, 'base64');
+    } else if (template.storageUrl && template.storageUrl.startsWith('gs://')) {
+      const storage = getAdminStorage();
+      const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+      if (!bucketName) throw new Error('Storage bucket env not set');
+      const relativePath = template.storageUrl.replace(`gs://${bucketName}/`, '');
+      const [bytes] = await storage.bucket(bucketName).file(relativePath).download();
+      pdfTemplateBytes = Buffer.from(bytes);
+    }
+  } catch (e) {
+    console.error('Failed to load template bytes for CoverPage:', sanitizeForLog(e));
+  }
+
+  if (!pdfTemplateBytes) {
+    throw new Error('Unable to load template bytes');
+  }
 
   const projectData = undefined; // Not required for cover page
   const contractData = undefined; // Not required, mapping can use generated.* or invoice.*
 
-  const fieldMappings = mapTemplateData(template as any, invoiceData, projectData, contractData, undefined, manualData);
+  const fieldMappings = mapTemplateData(template, invoiceData, projectData, contractData, undefined, manualData);
 
   // Fill PDF
   const pdfDoc = await PDFDocument.load(pdfTemplateBytes);

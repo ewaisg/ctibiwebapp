@@ -7,7 +7,8 @@ import { db } from '@/lib/firebase-client';
 import { doc, collection, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
-import { resolveTemplate, resolveInvoiceTemplate, mapTemplateData } from '@/lib/template-resolver';
+import { resolveTemplate, resolveInvoiceTemplate, mapTemplateData, type ResolvedTemplate } from '@/lib/template-resolver';
+import { generatePDFFromTemplate } from '@/lib/template-pdf-generator';
 import { Timestamp as AdminTimestamp } from 'firebase-admin/firestore';
 
 // Initialize Firebase Admin for server-side operations
@@ -121,19 +122,35 @@ async function fillPdfTemplate(
   // Attempt to use the new template assignment system when available
   if (!pdfTemplateBytes || category !== 'Invoice') {
     try {
-      let template: any = null;
+      let resolved: ResolvedTemplate | null = null;
       if (category === 'Invoice') {
-        template = await resolveInvoiceTemplate(projectId || '', contractId || '', departmentId);
+        resolved = await resolveInvoiceTemplate(projectId || '', contractId || '', departmentId);
       } else {
-        template = await resolveTemplate(category as any, projectId || '', contractId || '', departmentId);
+        resolved = await resolveTemplate(category as any, projectId || '', contractId || '', departmentId);
       }
 
-      if (template) {
-        pdfTemplateBytes = Buffer.from(template.base64Data, 'base64');
+      if (resolved) {
+        // Check if it's a visual template
+        if (resolved.source === 'visual') {
+          console.log('Using visual template for invoice generation');
+          // Generate PDF from visual template
+          const visualPdfBytes = await generatePDFFromTemplate(
+            resolved.template as any,
+            {
+              ...invoiceData,
+              project,
+              contract: { contractNumber: sanitizeTemplateValue((invoiceData as any).contractNumber) }
+            }
+          );
+          return Buffer.from(visualPdfBytes);
+        }
+
+        // Otherwise, it's a PDF template - continue with form filling
+        pdfTemplateBytes = Buffer.from((resolved.template as any).base64Data, 'base64');
 
         // Fetch additional collection data for cross-collection field mapping
         fieldMappings = await mapTemplateData(
-          template,
+          resolved.template as any,
           invoiceData,
           project,
           { contractNumber: sanitizeTemplateValue((invoiceData as any).contractNumber) }

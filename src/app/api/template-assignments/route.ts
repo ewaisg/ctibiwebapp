@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
 
       // Verify template exists (templateId provided from client is raw id)
       const templateIdRaw = sanitizedData.templateId as string;
-      const templateDoc = await adminDb.collection('pdfTemplates').doc(templateIdRaw).get();
+      const templateSource = (sanitizedData as any).templateSource || 'pdf';
+      const collectionName = templateSource === 'visual' ? 'visual_templates' : 'pdfTemplates';
+
+      const templateDoc = await adminDb.collection(collectionName).doc(templateIdRaw).get();
       if (!templateDoc.exists) {
         throw new ValidationError('Referenced template does not exist');
       }
@@ -73,7 +76,8 @@ export async function POST(request: NextRequest) {
       const assignmentData = {
         ...sanitizedData,
         assignmentId: sanitizedData.assignmentType === 'Global' ? 'global' : sanitizedData.assignmentId,
-        templateId: `pdfTemplates/${templateIdRaw}`,
+        templateId: `${collectionName}/${templateIdRaw}`,
+        templateSource,
         createdAt: Timestamp.now(),
         isActive: true,
       };

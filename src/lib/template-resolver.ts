@@ -2,15 +2,21 @@ import { adminDb } from '@/lib/firebase-admin';
 import { extractId } from '@/lib/document-reference-utils';
 import { sanitizeForLog, validateTemplateFieldName, sanitizeTemplateValue } from '@/lib/security-utils';
 import type { PdfTemplate, TemplateAssignment } from '@/types';
+import type { VisualTemplate } from '@/types/template-designer';
 
 export type TemplateCategory = 'Invoice' | 'CoverPage' | 'Report' | 'Custom';
+
+export interface ResolvedTemplate {
+  template: PdfTemplate | VisualTemplate;
+  source: 'pdf' | 'visual';
+}
 
 export async function resolveTemplate(
   category: TemplateCategory,
   projectId?: string,
   contractId?: string,
   departmentId?: string
-): Promise<PdfTemplate | null> {
+): Promise<ResolvedTemplate | null> {
   const db = adminDb;
   if (!db) {
     console.error('Firebase Admin SDK not initialized');
@@ -58,6 +64,11 @@ export async function resolveTemplate(
       const snapshot = await query.get();
       if (!snapshot.empty) {
         const assignment = snapshot.docs[0].data() as TemplateAssignment;
+
+        // Check templateSource field (defaults to 'pdf' for backward compatibility)
+        const templateSource = (assignment as any).templateSource || 'pdf';
+        const collectionName = templateSource === 'visual' ? 'visual_templates' : 'pdfTemplates';
+
         // Extract template id from FlexibleReference or path-like string
         let templateId: string | undefined;
         if (typeof (assignment as any).templateId === 'string') {
@@ -66,10 +77,15 @@ export async function resolveTemplate(
         } else {
           templateId = extractId((assignment as any).templateId);
         }
+
         if (templateId) {
-          const templateDoc = await db.collection('pdfTemplates').doc(templateId).get();
+          const templateDoc = await db.collection(collectionName).doc(templateId).get();
           if (templateDoc.exists) {
-            return { id: templateDoc.id, ...templateDoc.data() } as PdfTemplate;
+            const template = { id: templateDoc.id, ...templateDoc.data() };
+            return {
+              template: template as PdfTemplate | VisualTemplate,
+              source: templateSource as 'pdf' | 'visual'
+            };
           }
         }
       }
@@ -88,8 +104,13 @@ export async function resolveInvoiceTemplate(
   projectId: string,
   contractId: string,
   departmentId?: string
-): Promise<PdfTemplate | null> {
+): Promise<ResolvedTemplate | null> {
   return resolveTemplate('Invoice', projectId, contractId, departmentId);
+}
+
+// Helper function to extract just the template (for backward compatibility)
+export function getTemplateFromResolved(resolved: ResolvedTemplate | null): PdfTemplate | VisualTemplate | null {
+  return resolved ? resolved.template : null;
 }
 
 export function mapTemplateData(

@@ -12,6 +12,7 @@ import {
   TableProperties,
   CalendarClock,
   FileType,
+  FileText,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth"
 import { RolePermissions } from "@/types"
@@ -59,6 +60,15 @@ const getNavigationItems = (userRole: string | undefined, hasPermission: (permis
       title: "Invoices",
       url: "/invoices",
       icon: Files,
+    });
+  }
+
+  // Reports
+  if (hasPermission('canAccessInvoices')) {
+    navMain.push({
+      title: "Reports",
+      url: "/reports",
+      icon: FileText,
     });
   }
 

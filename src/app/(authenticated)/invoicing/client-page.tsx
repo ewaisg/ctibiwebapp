@@ -316,6 +316,9 @@ export function InvoicingClientPage({
   // Use single-flight autofill controller instead of local refs
   const autofill = useAutofill();
 
+  // New: Track previously uploaded files for existing invoices - MUST be before any conditional returns
+  const [existingUploadedFiles, setExistingUploadedFiles] = useState<Array<{ fileName: string; fileUrl: string }>>([]);
+
   // Helpers for permissions on existing invoice
   const access = getInvoiceAccess(user, existingInvoice);
   // Remove previous local isAuthor/isAdminOrPrime/canSubmit/etc and use access
@@ -330,20 +333,8 @@ export function InvoicingClientPage({
   const canRestorePdf = access.canRestorePdf;
   const isReadOnly = access.isReadOnly;
 
-  // Only block access when viewing an existing invoice
-  if (isEditing && !access.canView) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="text-center">
-          <h2 className="text-lg font-semibold text-muted-foreground">Access Denied</h2>
-          <p className="text-sm text-muted-foreground mt-2">You don't have permission to view this invoice.</p>
-        </div>
-      </div>
-    );
-  }
-
-  // New: Track previously uploaded files for existing invoices
-  const [existingUploadedFiles, setExistingUploadedFiles] = useState<Array<{ fileName: string; fileUrl: string }>>([]);
+  // NOTE: DO NOT RETURN EARLY HERE - ALL HOOKS MUST BE DECLARED BEFORE ANY RETURNS
+  // Access check moved to end of component
 
   // Track unsaved changes - mark as unsaved when form data changes
   useEffect(() => {
@@ -1414,7 +1405,10 @@ function normalizeDate(raw: any): Date | undefined {
         description: expense.description,
       })),
       attachedFiles: attachments.length > 0 ? attachments : undefined,
-      autofillSource: initialFormData?.action === 'autofill' ? 'timesheet' : 'manual',
+      // Preserve autofillSource when editing existing invoice, otherwise set based on initialFormData
+      autofillSource: isEditing && existingInvoice?.autofillSource
+        ? existingInvoice.autofillSource
+        : (initialFormData?.action === 'autofill' ? 'timesheet' : 'manual'),
       notes: formData.notes,
       userId: user.uid,
       userRole: user.role,
@@ -1611,6 +1605,19 @@ function normalizeDate(raw: any): Date | undefined {
       setActionLoading(false);
     }
   };
+
+  // ACCESS CHECK: Block access when viewing an existing invoice without permission
+  // This is done AFTER all hooks to comply with React's Rules of Hooks
+  if (isEditing && !access.canView) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <h2 className="text-lg font-semibold text-muted-foreground">Access Denied</h2>
+          <p className="text-sm text-muted-foreground mt-2">You don't have permission to view this invoice.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Render department selection step
   if (currentStep === 'department' && user?.role !== 'Subconsultant') {

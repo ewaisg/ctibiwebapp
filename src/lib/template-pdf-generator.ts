@@ -4,8 +4,16 @@
  */
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import Handlebars from 'handlebars';
 import type { VisualTemplate, TemplateElement } from '@/types/template-designer';
+
+// Dynamically import Handlebars to avoid build-time issues
+let Handlebars: any = null;
+async function getHandlebars() {
+  if (!Handlebars) {
+    Handlebars = (await import('handlebars')).default;
+  }
+  return Handlebars;
+}
 
 /**
  * Generate PDF from a visual template with data
@@ -18,7 +26,7 @@ export async function generatePDFFromTemplate(
   let page = pdfDoc.addPage([template.width, template.height]);
 
   // Register Handlebars helpers
-  registerHandlebarsHelpers();
+  await registerHandlebarsHelpers();
 
   // Group elements by page
   const pages: TemplateElement[][] = [[]];
@@ -72,6 +80,55 @@ function registerHandlebarsHelpers() {
   Handlebars.registerHelper('number', (value: number) => {
     if (typeof value !== 'number') return '0';
     return value.toLocaleString('en-US');
+  });
+
+  // Lookup helper for relationships
+  // Usage: {{lookup collectionName idFieldValue displayField}}
+  // Example: {{lookup "projects" projectId "projectName"}}
+  // Expects data to have a _lookups object with pre-fetched related data
+  Handlebars.registerHelper('lookup', function(this: any, collectionName: string, idValue: string, displayField: string) {
+    try {
+      // Check if _lookups exists in the data context
+      if (!this._lookups || !this._lookups[collectionName]) {
+        return `[${collectionName} not loaded]`;
+      }
+
+      // Find the related document by ID
+      const relatedDoc = this._lookups[collectionName][idValue];
+      if (!relatedDoc) {
+        return `[${collectionName}/${idValue} not found]`;
+      }
+
+      // Get the display field value
+      const value = relatedDoc[displayField];
+      return value !== undefined ? value : `[${displayField} not found]`;
+    } catch (error) {
+      console.error('Lookup helper error:', error);
+      return '[Lookup error]';
+    }
+  });
+
+  // Conditional equality helper
+  Handlebars.registerHelper('if_equals', function(this: any, a: any, b: any, options: any) {
+    return a === b ? options.fn(this) : options.inverse(this);
+  });
+
+  // Math helpers
+  Handlebars.registerHelper('multiply', (a: number, b: number) => {
+    return (a || 0) * (b || 0);
+  });
+
+  Handlebars.registerHelper('add', (a: number, b: number) => {
+    return (a || 0) + (b || 0);
+  });
+
+  Handlebars.registerHelper('subtract', (a: number, b: number) => {
+    return (a || 0) - (b || 0);
+  });
+
+  Handlebars.registerHelper('divide', (a: number, b: number) => {
+    if (!b || b === 0) return 0;
+    return (a || 0) / b;
   });
 }
 

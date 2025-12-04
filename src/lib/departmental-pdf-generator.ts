@@ -1,5 +1,6 @@
 import { generateClientSidePdf } from '@/lib/pdf-generator';
-import { resolveInvoiceTemplate, mapTemplateData } from '@/lib/template-resolver';
+import { resolveInvoiceTemplate, mapTemplateData, type ResolvedTemplate } from '@/lib/template-resolver';
+import { generatePDFFromTemplate } from '@/lib/template-pdf-generator';
 import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFRadioGroup } from 'pdf-lib';
 import { extractId } from '@/lib/document-reference-utils';
 import { sanitizeForLog, sanitizeFilePath, sanitizeTemplateValue } from '@/lib/security-utils';
@@ -23,19 +24,34 @@ export async function generateDepartmentalInvoicePdf(
     
     // Modified template resolution for departmental compilation
     // Priority: Department > Project > Contract > Global
-    const template = await resolveDepartmentalTemplate(departmentId, projectId, contractId);
-    
-    if (template) {
-      console.log(`[Departmental PDF] Using template for department`);
-      
-      // Use template system
-      const pdfTemplateBytes = template.storageUrl 
+    const resolved = await resolveDepartmentalTemplate(departmentId, projectId, contractId);
+
+    if (resolved) {
+      console.log(`[Departmental PDF] Using ${resolved.source} template for department`);
+
+      // Check if it's a visual template
+      if (resolved.source === 'visual') {
+        console.log('[Departmental PDF] Generating from visual template');
+        const visualPdfBytes = await generatePDFFromTemplate(
+          resolved.template as any,
+          {
+            ...invoiceData,
+            project: projectData || {},
+            contract: companies.find(c => c.id === (projectData?.contractId || invoiceData.contractId)) || {}
+          }
+        );
+        return { success: true, pdfBuffer: Buffer.from(visualPdfBytes) };
+      }
+
+      // Otherwise, use PDF template form filling
+      const template = resolved.template as any;
+      const pdfTemplateBytes = template.storageUrl
         ? await downloadTemplateFromStorage(template.storageUrl)
         : Buffer.from(template.base64Data, 'base64');
-      
+
       const pdfDoc = await PDFDocument.load(pdfTemplateBytes);
       const form = pdfDoc.getForm();
-      
+
       // Map data using template configuration
       const mappedData = mapTemplateData(
         template,
@@ -43,7 +59,7 @@ export async function generateDepartmentalInvoicePdf(
         projectData || {},
         companies.find(c => c.id === (projectData?.contractId || invoiceData.contractId)) || {}
       );
-      
+
       // Fill the form fields
       Object.entries(mappedData).forEach(([fieldName, value]) => {
         try {
@@ -65,7 +81,7 @@ export async function generateDepartmentalInvoicePdf(
           console.warn('Could not fill template field:', sanitizeForLog(error));
         }
       });
-      
+
       const pdfBytes = await pdfDoc.save();
       return { success: true, pdfBuffer: Buffer.from(pdfBytes) };
     } else {
@@ -163,13 +179,20 @@ async function resolveDepartmentalTemplate(
       if (!snapshot.empty) {
         const assignment = snapshot.docs[0].data();
         const templateId = extractId(assignment.templateId);
-        
+
+        // Check templateSource field (defaults to 'pdf' for backward compatibility)
+        const templateSource = assignment.templateSource || 'pdf';
+        const collectionName = templateSource === 'visual' ? 'visual_templates' : 'pdfTemplates';
+
         if (templateId) {
-          const templateDoc = await adminDb.collection('pdfTemplates').doc(templateId).get();
+          const templateDoc = await adminDb.collection(collectionName).doc(templateId).get();
           if (templateDoc.exists) {
-            const template = { id: templateDoc.id, ...templateDoc.data() } as PdfTemplate;
-            console.log(`[Departmental Template] Found template for assignment type:`, sanitizeForLog(assignment.assignmentType));
-            return template;
+            const template = { id: templateDoc.id, ...templateDoc.data() };
+            console.log(`[Departmental Template] Found ${templateSource} template for assignment type:`, sanitizeForLog(assignment.assignmentType));
+            return {
+              template: template as any,
+              source: templateSource as 'pdf' | 'visual'
+            };
           }
         }
       }

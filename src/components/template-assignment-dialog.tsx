@@ -23,18 +23,21 @@ import {
 import { Settings, Loader2 } from "lucide-react";
 import { extractId } from "@/lib/document-reference-utils";
 import type { PdfTemplate, Contract, Department, Project, TemplateAssignment } from "@/types";
+import type { VisualTemplate } from "@/types/template-designer";
 
 interface TemplateAssignmentDialogProps {
   children: React.ReactNode;
   templates: PdfTemplate[];
+  visualTemplates?: VisualTemplate[];
   onAssignmentCreated: () => void;
   editingAssignment?: TemplateAssignment | null;
   onClose?: () => void;
 }
 
-export function TemplateAssignmentDialog({ 
-  children, 
-  templates, 
+export function TemplateAssignmentDialog({
+  children,
+  templates,
+  visualTemplates = [],
   onAssignmentCreated,
   editingAssignment = null,
   onClose
@@ -60,8 +63,9 @@ export function TemplateAssignmentDialog({
   const [assignmentId, setAssignmentId] = useState<string>("");
   const [templateId, setTemplateId] = useState<string>("");
   const [templateType, setTemplateType] = useState<string>("");
+  const [templateSource, setTemplateSource] = useState<"pdf" | "visual">("pdf");
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -77,10 +81,17 @@ export function TemplateAssignmentDialog({
     if (editingAssignment && open) {
       setAssignmentType(editingAssignment.assignmentType);
       setAssignmentId(extractId(editingAssignment.assignmentId) || '');
-      const templateIdOnly = typeof editingAssignment.templateId === 'string' 
-        ? editingAssignment.templateId.replace('pdfTemplates/', '')
+
+      // Determine if this is a PDF or Visual template
+      const templateIdStr = typeof editingAssignment.templateId === 'string'
+        ? editingAssignment.templateId
         : extractId(editingAssignment.templateId) || '';
-      setTemplateId(templateIdOnly);
+
+      const isVisual = templateIdStr.includes('visual_templates/') ||
+                       (editingAssignment as any).templateSource === 'visual';
+
+      setTemplateSource(isVisual ? 'visual' : 'pdf');
+      setTemplateId(templateIdStr.replace('pdfTemplates/', '').replace('visual_templates/', ''));
       setTemplateType(editingAssignment.templateType);
     } else if (open) {
       // Reset form for new assignment
@@ -88,6 +99,7 @@ export function TemplateAssignmentDialog({
       setAssignmentId("");
       setTemplateId("");
       setTemplateType("");
+      setTemplateSource("pdf");
     }
   }, [editingAssignment, open]);
 
@@ -130,11 +142,15 @@ export function TemplateAssignmentDialog({
     }
 
     setIsProcessing(true);
-    
+
     try {
-      const template = templates.find(t => t.id === templateId);
+      // Find template from appropriate source
+      const template = templateSource === 'visual'
+        ? visualTemplates.find(t => t.id === templateId)
+        : templates.find(t => t.id === templateId);
+
       let assignmentName = 'Global Default';
-      
+
       if (assignmentType === 'Contract') {
         const contract = contracts.find(c => c.id === assignmentId);
         assignmentName = contract?.contractName || 'Unknown Contract';
@@ -151,10 +167,11 @@ export function TemplateAssignmentDialog({
         assignmentId: assignmentType === 'Global' ? 'global' : assignmentId,
         assignmentName,
         templateId,
-        templateName: template?.templateName || 'Unknown Template',
+        templateName: (template as any)?.templateName || (template as any)?.name || 'Unknown Template',
         templateType,
+        templateSource,
         isActive: true,
-        ...(editingAssignment 
+        ...(editingAssignment
           ? { updatedBy: user.uid, updatedByName: user.displayName }
           : { createdBy: user.uid, createdByName: user.displayName }
         )
@@ -204,9 +221,31 @@ export function TemplateAssignmentDialog({
     }
   };
 
-  const availableTemplates = templates.filter(t => 
-    !templateType || t.templateType === templateType
-  );
+  // Helper to normalize template types for comparison
+  const normalizeType = (type: string): string => {
+    const map: Record<string, string> = {
+      'Invoice': 'invoice',
+      'CoverPage': 'cover-page',
+      'Report': 'report',
+      'Custom': 'custom',
+      'invoice': 'invoice',
+      'cover-page': 'cover-page',
+      'report': 'report',
+      'custom': 'custom'
+    };
+    return map[type] || type.toLowerCase();
+  };
+
+  // Get available templates based on source and type
+  const availableTemplates = templateSource === 'visual'
+    ? visualTemplates.filter(t => {
+        if (!templateType) return true;
+        return normalizeType(t.type) === normalizeType(templateType);
+      })
+    : templates.filter(t => {
+        if (!templateType) return true;
+        return t.templateType === templateType;
+      });
 
   return (
     <Dialog open={open} onOpenChange={handleDialogClose}>
@@ -231,6 +270,22 @@ export function TemplateAssignmentDialog({
 
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
+            <Label>Template Source *</Label>
+            <Select value={templateSource} onValueChange={(value: "pdf" | "visual") => {
+              setTemplateSource(value);
+              setTemplateId(""); // Reset template selection when source changes
+            }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select template source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pdf">PDF Templates (Legacy)</SelectItem>
+                <SelectItem value="visual">Visual Templates (Designer)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
             <Label>Template Type *</Label>
             <Select value={templateType} onValueChange={setTemplateType}>
               <SelectTrigger>
@@ -240,6 +295,7 @@ export function TemplateAssignmentDialog({
                 <SelectItem value="Invoice">Invoice</SelectItem>
                 <SelectItem value="CoverPage">Cover Page</SelectItem>
                 <SelectItem value="Report">Report</SelectItem>
+                {templateSource === 'visual' && <SelectItem value="Custom">Custom</SelectItem>}
               </SelectContent>
             </Select>
           </div>
@@ -253,9 +309,14 @@ export function TemplateAssignmentDialog({
               <SelectContent>
                 {availableTemplates.map((template) => (
                   <SelectItem key={template.id} value={template.id}>
-                    {template.templateName}
+                    {(template as any).templateName || (template as any).name || 'Unnamed Template'}
                   </SelectItem>
                 ))}
+                {availableTemplates.length === 0 && (
+                  <div className="text-sm text-muted-foreground p-2">
+                    No templates available for this type
+                  </div>
+                )}
               </SelectContent>
             </Select>
           </div>

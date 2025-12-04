@@ -378,7 +378,8 @@ export interface TemplateAssignment {
   assignmentName: string; // Denormalized name for easier querying
   templateId: FlexibleReference; // template reference
   templateName: string; // Denormalized for easier querying
-  templateType: 'Invoice' | 'CoverPage' | 'Report';
+  templateType: 'Invoice' | 'CoverPage' | 'Report' | 'Custom';
+  templateSource?: 'pdf' | 'visual'; // Optional: source of the template
   isActive: boolean;
   createdAt: Timestamp;
   createdBy: FlexibleReference; // user reference

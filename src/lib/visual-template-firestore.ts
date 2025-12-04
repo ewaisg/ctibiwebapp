@@ -68,14 +68,16 @@ export async function getAllVisualTemplates(): Promise<VisualTemplate[]> {
 
   const snapshot = await adminDb
     .collection(COLLECTION_NAME)
-    .where('isActive', '==', true)
     .orderBy('updatedAt', 'desc')
     .get();
 
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as VisualTemplate[];
+  // Filter for active templates and return
+  return snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    } as VisualTemplate))
+    .filter(template => template.isActive !== false);
 }
 
 /**
@@ -89,14 +91,16 @@ export async function getVisualTemplatesByType(type: string): Promise<VisualTemp
   const snapshot = await adminDb
     .collection(COLLECTION_NAME)
     .where('type', '==', type)
-    .where('isActive', '==', true)
     .orderBy('updatedAt', 'desc')
     .get();
 
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as VisualTemplate[];
+  // Filter for active templates and return
+  return snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    } as VisualTemplate))
+    .filter(template => template.isActive !== false);
 }
 
 /**

@@ -4,6 +4,17 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  serverExternalPackages: ['handlebars'],
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Don't bundle handlebars for the client
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        handlebars: false,
+      };
+    }
+    return config;
+  },
   async headers() {
     return [
       {

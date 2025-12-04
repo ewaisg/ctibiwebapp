@@ -20,6 +20,8 @@ import { DashboardLoadingSkeleton } from "@/components/dashboard/DashboardSkelet
 import { SectionCards } from "@/components/section-cards";
 import TimeAllocationPie, { type TimeAllocationDatum } from "@/components/dashboard/TimeAllocationPie";
 import BillableTrendLine, { type BillableTrendDatum } from "@/components/dashboard/BillableTrendLine";
+import BillableHoursForecast, { type BillableHoursForecastDatum } from "@/components/dashboard/BillableHoursForecast";
+import UtilizationTrendChart, { type UtilizationTrendDatum } from "@/components/dashboard/UtilizationTrendChart";
 import TopEmployeesBar, { type TopEmployeeDatum } from "@/components/dashboard/TopEmployeesBar";
 import ProjectHoursStacked, { type ProjectHoursDatum } from "@/components/dashboard/ProjectHoursStacked";
 import ProjectBudgetRadial, { type ProjectBudgetDatum } from "@/components/dashboard/ProjectBudgetRadial";
@@ -50,7 +52,7 @@ export default function DashboardClient() {
 
   // Initialize state from URL params
   const [timeRange, setTimeRange] = useState<TimeRange>(
-    (searchParams.get("timeRange") as TimeRange) || "30d"
+    (searchParams.get("timeRange") as TimeRange) || "90d"
   );
   const [activeTab, setActiveTab] = useState<DashboardTab>(
     (searchParams.get("tab") as DashboardTab) || "overview"
@@ -70,7 +72,7 @@ export default function DashboardClient() {
   // Update URL params when filters change
   useEffect(() => {
     const params = new URLSearchParams();
-    if (timeRange !== "30d") params.set("timeRange", timeRange);
+    if (timeRange !== "90d") params.set("timeRange", timeRange);
     if (activeTab !== "overview") params.set("tab", activeTab);
     if (projectId !== ALL) params.set("project", projectId);
     if (employeeId !== ALL) params.set("employee", employeeId);
@@ -142,6 +144,141 @@ export default function DashboardClient() {
       billable: Math.max(0, Math.round(point.billableHours ?? 0)),
       unbillable: Math.max(0, Math.round(point.nonBillableHours ?? 0)),
     }));
+  }, [data]);
+
+  const billableHoursForecast: BillableHoursForecastDatum[] = useMemo(() => {
+    if (!data) return [];
+    const series = [...(data.overview.hoursSeries ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+    const employeeCount = data.meta?.employeesLoaded ?? 1; // Get active employee count
+
+    // Group by week and calculate weekly totals
+    const weeklyData = new Map<string, { dates: string[], billableSum: number, trendSum: number, trendCount: number }>();
+
+    series.forEach(point => {
+      const billableHours = point.billableHours ?? 0;
+      if (billableHours === 0) return; // Skip zero values
+
+      const date = new Date(point.date);
+      // Get the Monday of the week (ISO week)
+      const dayOfWeek = date.getDay();
+      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust when day is Sunday
+      const monday = new Date(date.setDate(diff));
+      const weekKey = monday.toISOString().split('T')[0];
+
+      if (!weeklyData.has(weekKey)) {
+        weeklyData.set(weekKey, { dates: [], billableSum: 0, trendSum: 0, trendCount: 0 });
+      }
+
+      const weekData = weeklyData.get(weekKey)!;
+      weekData.dates.push(point.date);
+      weekData.billableSum += billableHours; // Total for all employees for the day
+
+      if (point.rollingBillableAverage) {
+        weekData.trendSum += point.rollingBillableAverage;
+        weekData.trendCount++;
+      }
+    });
+
+    // Convert to array and calculate per-employee weekly averages
+    return Array.from(weeklyData.entries())
+      .map(([weekStart, data]) => {
+        const weekStartDate = new Date(weekStart);
+        const weekEndDate = new Date(weekStart);
+        weekEndDate.setDate(weekEndDate.getDate() + 6);
+
+        // Format as "MM/DD"
+        const formatDate = (d: Date) => `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+        const weekLabel = `${formatDate(weekStartDate)}`;
+
+        // Total billable hours for the week across all employees
+        const weeklyTotal = data.billableSum;
+        // Average per employee for the week
+        const avgPerEmployee = employeeCount > 0 ? weeklyTotal / employeeCount : weeklyTotal;
+
+        // Trend: total trend for week divided by employee count
+        const weeklyTrendTotal = data.trendCount > 0 ? data.trendSum : 0;
+        const avgTrendPerEmployee = employeeCount > 0 && data.trendCount > 0 ? weeklyTrendTotal / employeeCount : undefined;
+
+        return {
+          date: weekLabel,
+          actual: Math.round(avgPerEmployee),
+          trend: avgTrendPerEmployee ? Math.round(avgTrendPerEmployee) : undefined,
+        };
+      })
+      .sort((a, b) => {
+        // Parse dates for proper sorting
+        const parseDate = (label: string) => {
+          const [month, day] = label.split('/').map(Number);
+          return new Date(2024, month - 1, day).getTime();
+        };
+        return parseDate(a.date) - parseDate(b.date);
+      });
+  }, [data]);
+
+  const utilizationTrend: UtilizationTrendDatum[] = useMemo(() => {
+    if (!data) return [];
+    const series = [...(data.overview.hoursSeries ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Group by week and calculate weekly utilization
+    const weeklyData = new Map<string, { billableSum: number, totalSum: number, count: number }>();
+
+    series.forEach(point => {
+      const billableHours = point.billableHours ?? 0;
+      const totalHours = point.totalHours ?? 0;
+
+      if (totalHours === 0) return; // Skip days with no hours logged
+
+      const date = new Date(point.date);
+      // Get the Monday of the week (ISO week)
+      const dayOfWeek = date.getDay();
+      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+      const monday = new Date(date.setDate(diff));
+      const weekKey = monday.toISOString().split('T')[0];
+
+      if (!weeklyData.has(weekKey)) {
+        weeklyData.set(weekKey, { billableSum: 0, totalSum: 0, count: 0 });
+      }
+
+      const weekData = weeklyData.get(weekKey)!;
+      weekData.billableSum += billableHours;
+      weekData.totalSum += totalHours;
+      weekData.count++;
+    });
+
+    // Convert to array and calculate weekly utilization percentages
+    const weeklyArray = Array.from(weeklyData.entries())
+      .map(([weekStart, data]) => {
+        const weekStartDate = new Date(weekStart);
+        const formatDate = (d: Date) => `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+        const weekLabel = `${formatDate(weekStartDate)}`;
+
+        const utilization = data.totalSum > 0 ? (data.billableSum / data.totalSum) * 100 : 0;
+
+        return {
+          date: weekLabel,
+          weekStart,
+          utilization: Math.round(utilization * 10) / 10, // Round to 1 decimal
+        };
+      })
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+
+    // Calculate trend line (simple moving average over 3 weeks)
+    return weeklyArray.map((week, index) => {
+      let trendValue: number | undefined;
+
+      if (index >= 2) {
+        // Calculate 3-week moving average
+        const window = weeklyArray.slice(Math.max(0, index - 2), index + 1);
+        const sum = window.reduce((acc, w) => acc + w.utilization, 0);
+        trendValue = Math.round((sum / window.length) * 10) / 10;
+      }
+
+      return {
+        date: week.date,
+        utilization: week.utilization,
+        trend: trendValue,
+      };
+    });
   }, [data]);
 
   const topEmployees: TopEmployeeDatum[] = useMemo(() => {
@@ -304,7 +441,7 @@ export default function DashboardClient() {
   }, [data]);
 
   const clearFilters = () => {
-    setTimeRange("30d");
+    setTimeRange("90d");
     setProjectId(ALL);
     setEmployeeId(ALL);
   };
@@ -351,7 +488,7 @@ export default function DashboardClient() {
   // Calculate active filter count
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (timeRange !== "30d") count++;
+    if (timeRange !== "90d") count++;
     if (projectId !== ALL) count++;
     if (employeeId !== ALL) count++;
     return count;
@@ -550,7 +687,12 @@ export default function DashboardClient() {
             </div>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="lg:col-span-2">
-                <BillableTrendLine data={billableTrend} />
+                <UtilizationTrendChart
+                  data={utilizationTrend}
+                  title="Utilization Rate Trend"
+                  subtitle={`Company-wide billable utilization over ${timeRange === '7d' ? '7 days' : timeRange === '30d' ? '30 days' : timeRange === '90d' ? '90 days' : 'selected period'}`}
+                  targetUtilization={80}
+                />
               </div>
               <TopEmployeesBar data={topEmployees} />
               <ProjectHoursStacked data={projectHours} />

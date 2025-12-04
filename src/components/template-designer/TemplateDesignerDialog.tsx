@@ -16,7 +16,6 @@ import { DesignerCanvas } from './DesignerCanvas';
 import { ElementToolbox } from './ElementToolbox';
 import { PropertyPanel } from './PropertyPanel';
 import { DataBindingPanel } from './DataBindingPanel';
-import { FirestoreDataBrowser } from './FirestoreDataBrowser';
 
 interface TemplateDesignerDialogProps {
   open: boolean;
@@ -66,7 +65,8 @@ export function TemplateDesignerDialog({
     }, 30000); // Auto-save after 30 seconds of inactivity
 
     return () => clearTimeout(autoSaveTimer);
-  }, [template, hasUnsavedChanges, open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnsavedChanges, open, template.name, template.id]);
 
   // Add to history
   const addToHistory = useCallback((newTemplate: VisualTemplate) => {
@@ -156,7 +156,7 @@ export function TemplateDesignerDialog({
   }, [template, selectedElement, addToHistory]);
 
   // Save template
-  const saveTemplate = async (autoSave = false) => {
+  const saveTemplate = useCallback(async (autoSave = false): Promise<string | null> => {
     if (!template.name || template.name === 'Untitled Template') {
       if (!autoSave) {
         toast({
@@ -165,7 +165,7 @@ export function TemplateDesignerDialog({
           variant: 'destructive',
         });
       }
-      return;
+      return null;
     }
 
     setIsSaving(true);
@@ -206,8 +206,8 @@ export function TemplateDesignerDialog({
         });
       }
 
-      // Don't close the dialog - keep editing
-      // User can close manually when done
+      // Return the template ID for immediate use
+      return data.templateId;
     } catch (error) {
       console.error('Error saving template:', error);
       if (!autoSave) {
@@ -217,10 +217,11 @@ export function TemplateDesignerDialog({
           variant: 'destructive',
         });
       }
+      return null;
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [template, secureRequest, onTemplateSaved]);
 
   // Zoom controls
   const zoomIn = () => setZoom(Math.min(zoom + 0.1, 2));
@@ -228,52 +229,63 @@ export function TemplateDesignerDialog({
   const resetZoom = () => setZoom(1);
 
   // Preview template
-  const previewTemplate = async () => {
-    if (!template.id) {
+  const previewTemplate = useCallback(async () => {
+    let templateIdToPreview = template.id;
+
+    // Save first if not saved or has unsaved changes
+    if (!templateIdToPreview || hasUnsavedChanges) {
       toast({
-        title: 'Preview Unavailable',
-        description: 'Please save the template first before previewing.',
-        variant: 'destructive',
+        title: 'Saving Template',
+        description: 'Saving your template before preview...',
       });
-      return;
+
+      // Get the template ID from save (returns immediately, no state wait needed)
+      const savedId = await saveTemplate(false);
+
+      if (!savedId) {
+        toast({
+          title: 'Preview Unavailable',
+          description: 'Template must be saved first. Please ensure template name is set.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Use the returned ID instead of waiting for state
+      templateIdToPreview = savedId;
     }
 
     try {
-      const response = await secureRequest(`/api/visual-templates/${template.id}/generate-pdf`);
+      const response = await secureRequest(`/api/visual-templates/${templateIdToPreview}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ /* sample data could go here */ }),
+      });
 
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         window.open(url, '_blank');
+
+        toast({
+          title: 'Preview Generated',
+          description: 'Opening preview in new tab...',
+        });
       } else {
-        throw new Error('Failed to generate preview');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate preview');
       }
     } catch (error) {
       console.error('Error previewing template:', error);
       toast({
         title: 'Preview Failed',
-        description: 'Failed to generate preview. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to generate preview. Please try again.',
         variant: 'destructive',
       });
     }
-  };
-
-  // Handle field selection from Firestore browser
-  const handleFieldSelect = (fieldPath: string) => {
-    const binding = `{{${fieldPath}}}`;
-
-    // If a text element is selected, insert the binding into it
-    if (selectedElement && selectedElement.type === 'text') {
-      const textElement = selectedElement as any;
-      const currentContent = textElement.content || '';
-      updateElement(selectedElement.id, {
-        content: currentContent + binding,
-      });
-    } else {
-      // Otherwise, copy to clipboard
-      navigator.clipboard.writeText(binding);
-    }
-  };
+  }, [template.id, hasUnsavedChanges, saveTemplate, secureRequest]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -406,9 +418,8 @@ export function TemplateDesignerDialog({
           {/* Left Sidebar - Toolbox */}
           <div className="w-64 border-r bg-muted/20 overflow-y-auto">
             <Tabs defaultValue="elements" className="w-full">
-              <TabsList className="w-full justify-start rounded-none grid grid-cols-3">
+              <TabsList className="w-full justify-start rounded-none grid grid-cols-2">
                 <TabsTrigger value="elements">Elements</TabsTrigger>
-                <TabsTrigger value="browse">Browse</TabsTrigger>
                 <TabsTrigger value="data">Schema</TabsTrigger>
               </TabsList>
 
@@ -416,12 +427,11 @@ export function TemplateDesignerDialog({
                 <ElementToolbox onAddElement={addElement} />
               </TabsContent>
 
-              <TabsContent value="browse" className="m-0 p-4">
-                <FirestoreDataBrowser onFieldSelect={handleFieldSelect} />
-              </TabsContent>
-
               <TabsContent value="data" className="m-0 p-4">
                 <DataBindingPanel templateType={template.type} />
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+                  <strong>Tip:</strong> Select an element on the canvas to map data using the visual data picker in the properties panel (right side).
+                </div>
               </TabsContent>
             </Tabs>
           </div>

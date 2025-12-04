@@ -54,7 +54,15 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(bytes);
 
       // Upload to Firebase Storage
-      const bucket = storage.bucket();
+      const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+      if (!bucketName) {
+        return NextResponse.json(
+          { error: 'Storage bucket not configured' },
+          { status: 500 }
+        );
+      }
+
+      const bucket = storage.bucket(bucketName);
       const fileRef = bucket.file(filename);
 
       await fileRef.save(buffer, {
@@ -67,7 +75,7 @@ export async function POST(request: NextRequest) {
       await fileRef.makePublic();
 
       // Get public URL
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filename}`;
+      const publicUrl = `https://storage.googleapis.com/${bucketName}/${filename}`;
 
       return NextResponse.json({
         success: true,

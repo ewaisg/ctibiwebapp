@@ -115,6 +115,15 @@ export function FirestoreDataBrowser({ onFieldSelect }: FirestoreDataBrowserProp
         </p>
       </div>
 
+      {/* Helpful Notice */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <p className="text-xs font-medium text-blue-900 mb-1">💡 Better Way!</p>
+        <p className="text-xs text-blue-800">
+          Select an element first, then use the Properties panel (right side) for a smarter,
+          guided data mapping experience with relationship support!
+        </p>
+      </div>
+
       <Separator />
 
       {/* Collection Selector */}

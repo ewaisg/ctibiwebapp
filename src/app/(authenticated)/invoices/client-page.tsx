@@ -181,7 +181,7 @@ export function InvoicesClientPage({
   users,
   contracts
  }: InvoicesClientPageProps) {
-  const { user, secureRequest } = useAuth();
+  const { user, firebaseUser, secureRequest } = useAuth();
   const router = useRouter();
   // Stabilize secureRequest to avoid effect loops when its identity changes per render
   const secureRef = useRef(secureRequest);
@@ -420,9 +420,20 @@ export function InvoicesClientPage({
 
   const handleDepartmentalCompilation = async (departmentId: string, startDate: string, endDate: string) => {
     try {
+      // Get auth token
+      if (!firebaseUser) {
+        alert('Authentication required. Please sign in again.');
+        return;
+      }
+
+      const idToken = await firebaseUser.getIdToken();
+
       const response = await fetch('/api/departmental-compilation', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify({ departmentId, startDate, endDate })
       });
       

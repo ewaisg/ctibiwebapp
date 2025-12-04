@@ -13,11 +13,21 @@ export async function GET(request: NextRequest) {
       const contractId = searchParams.get('contractId') || undefined;
       const departmentId = searchParams.get('departmentId') || undefined;
 
-      const template = await resolveTemplate(category, projectId, contractId, departmentId);
-      if (!template) {
-        return NextResponse.json({ template: null });
+      const resolved = await resolveTemplate(category, projectId, contractId, departmentId);
+      if (!resolved) {
+        return NextResponse.json({ template: null, source: null });
       }
-      return NextResponse.json({ template: { id: template.id, templateName: template.templateName } });
+
+      // Extract template name based on source
+      const templateName = (resolved.template as any).templateName || (resolved.template as any).name;
+
+      return NextResponse.json({
+        template: {
+          id: resolved.template.id,
+          templateName
+        },
+        source: resolved.source
+      });
     } catch (error) {
       return handleApiError(error);
     }

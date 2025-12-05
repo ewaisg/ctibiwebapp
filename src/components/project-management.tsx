@@ -11,14 +11,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -32,6 +24,31 @@ import { ProjectTeamManagement } from "@/components/project-team-management";
 import type { Project, Contract, Company, Department, Division, Service, Employee } from "@/types";
 import { toast } from "react-hot-toast";
 import { updateProject } from "@/app/(authenticated)/admin/actions";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
+
+L10n.load({
+    'en-US': {
+        'pager': {
+            'currentPageInfo': '',
+            'totalItemsInfo': '{1} to {2} of {0}',
+        }
+    }
+});
+
 
 interface ProjectManagementProps {
   projects: Project[];
@@ -134,6 +151,52 @@ export function ProjectManagement({
   const totalOriginalAmount = projects.reduce((sum, project) => sum + (project.originalPoAmount || 0), 0);
   const totalRemainingAmount = projects.reduce((sum, project) => sum + (project.remainingPoAmount || 0), 0);
 
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const statusTemplate = (props: any) => {
+    return getStatusBadge(props);
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingProject(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Project
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setManagingTeamProject(props)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Manage Team
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Project
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
+  const currencyTemplate = (props: any) => {
+    return formatCurrency(props.originalPoAmount);
+  };
+  
+  const contractTemplate = (props: any) => {
+      return getContractName(props.contractId as string);
+  }
+
+  const departmentTemplate = (props: any) => {
+      return getDepartmentName(props);
+  }
+
   return (
     <>
       <div className="flex items-center justify-between">
@@ -170,7 +233,7 @@ export function ProjectManagement({
             <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
               {projects.filter(p => !p.isInactive && !p.isComplete).length}
             </div>
           </CardContent>
@@ -189,7 +252,7 @@ export function ProjectManagement({
             <CardTitle className="text-sm font-medium">Remaining Amount</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
               {formatCurrency(totalRemainingAmount)}
             </div>
           </CardContent>
@@ -207,56 +270,18 @@ export function ProjectManagement({
         </CardHeader>
         <CardContent>
           {projects.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Project Name</TableHead>
-                  <TableHead>PO Number</TableHead>
-                  <TableHead>Contract</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>PO Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projects.map((project) => (
-                  <TableRow key={project.id}>
-                    <TableCell className="font-medium">{project.projectName}</TableCell>
-                    <TableCell>{project.poNumber}</TableCell>
-                    <TableCell>{getContractName(project.contractId as string)}</TableCell>
-                    <TableCell>{getDepartmentName(project)}</TableCell>
-                    <TableCell>{formatCurrency(project.originalPoAmount)}</TableCell>
-                    <TableCell>
-                      {getStatusBadge(project)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingProject(project)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Project
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setManagingTeamProject(project)}>
-                            <Plus className="h-4 w-4 mr-2" />
-                            Manage Team
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Project
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={projects} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='projectName' headerText='Project Name' width='200'></ColumnDirective>
+                <ColumnDirective field='poNumber' headerText='PO Number' width='150'></ColumnDirective>
+                <ColumnDirective field='contractId' headerText='Contract' width='150' template={contractTemplate}></ColumnDirective>
+                <ColumnDirective field='departmentId' headerText='Department' width='150' template={departmentTemplate}></ColumnDirective>
+                <ColumnDirective field='originalPoAmount' headerText='PO Amount' width='150' template={currencyTemplate} textAlign='Right'></ColumnDirective>
+                <ColumnDirective field='status' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <FolderOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

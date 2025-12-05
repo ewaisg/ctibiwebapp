@@ -36,6 +36,7 @@
     "@syncfusion/ej2-react-base": "^31.1.17",
     "@syncfusion/ej2-react-charts": "^31.1.17",
     "@syncfusion/ej2-react-filemanager": "^31.1.17",
+    "@syncfusion/ej2-react-grids": "^31.2.16",
     "@syncfusion/ej2-react-pdfviewer": "^31.1.17",
     "@tabler/icons-react": "^3.34.1",
     "@types/fabric": "^5.3.10",

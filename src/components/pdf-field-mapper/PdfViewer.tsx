@@ -252,7 +252,7 @@ export function PdfViewer({ pdfUrl, fields, mappedFields, onFieldClick }: PdfVie
 
       {/* PDF Canvas with Field Overlays */}
       <div ref={containerRef} className="relative border rounded bg-gray-50 overflow-auto" style={{ height: '75vh' }}>
-        <div className="relative inline-block min-w-full min-h-full flex justify-center bg-gray-200/50 p-4">
+        <div className="relative min-w-full min-h-full flex justify-center bg-gray-200/50 p-4">
           <div className="relative shadow-lg">
             <canvas ref={canvasRef} className="block bg-white" />
 

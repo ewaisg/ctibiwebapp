@@ -313,7 +313,7 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
               ) : (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <div className="flex items-start gap-3">
-                    <FileSpreadsheet className="h-8 w-8 text-green-600 flex-shrink-0" />
+                    <FileSpreadsheet className="h-8 w-8 text-green-600 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm text-green-800 truncate">{file.name}</p>
                       <p className="text-xs text-green-600">
@@ -366,7 +366,7 @@ export function TimesheetUploadDialog({ isOpen, onClose, onSuccess }: TimesheetU
                 </div>
                 <div className="relative">
                   <Progress value={getProgressPercentage()} className="h-4" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-green-500/20 rounded-full animate-pulse" />
+                  <div className="absolute inset-0 bg-linear-to-r from-blue-500/20 to-green-500/20 rounded-full animate-pulse" />
                 </div>
               </div>
 

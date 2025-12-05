@@ -63,8 +63,8 @@ const getNavigationItems = (userRole: string | undefined, hasPermission: (permis
     });
   }
 
-  // Reports
-  if (hasPermission('canAccessInvoices')) {
+  // Reports (only for Admin and Prime, not Subconsultants)
+  if (hasPermission('canAccessDashboard')) {
     navMain.push({
       title: "Reports",
       url: "/reports",

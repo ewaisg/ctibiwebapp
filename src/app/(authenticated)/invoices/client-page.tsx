@@ -1195,10 +1195,13 @@ export function InvoicesClientPage({
               Delete Selected ({selectedInvoices.length})
             </Button>
           )}
-          <DepartmentalCompilationDialog
-            departments={departments}
-            onCompile={handleDepartmentalCompilation}
-          />
+          {/* Only show Compile by Department for Admin and Prime users */}
+          {user?.role !== 'Subconsultant' && (
+            <DepartmentalCompilationDialog
+              departments={departments}
+              onCompile={handleDepartmentalCompilation}
+            />
+          )}
           <NewInvoiceDialog 
             projects={projects}
             departments={departments}

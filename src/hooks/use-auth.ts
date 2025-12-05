@@ -159,6 +159,20 @@ export function useAuth() {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const firebaseUser = userCredential.user;
             debug('signInWithEmail:success', { uid: firebaseUser.uid, email: firebaseUser.email });
+
+            // Create session cookie
+            try {
+                const idToken = await firebaseUser.getIdToken();
+                await fetch('/api/auth/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idToken }),
+                });
+                debug('session cookie created');
+            } catch (e) {
+                console.error('Failed to create session cookie', e);
+            }
+
             try {
                 const idTokenResult = await firebaseUser.getIdTokenResult();
                 const claims = idTokenResult?.claims as FirebaseCustomClaims;
@@ -220,6 +234,7 @@ export function useAuth() {
         try {
             debug('signOut:start');
             await firebaseSignOut(auth);
+            await fetch('/api/auth/session', { method: 'DELETE' });
             debug('signOut:success');
         } catch (error) {
             console.error('Error signing out:', error);

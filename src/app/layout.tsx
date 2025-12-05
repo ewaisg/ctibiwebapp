@@ -6,6 +6,8 @@ import { Toaster } from "react-hot-toast";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { KeyboardShortcutsDialog } from "@/components/ui/keyboard-shortcuts-dialog";
+import SyncfusionLicenseRegistry from "@/components/syncfusion-license-registry";
+import SyncfusionThemeManager from "@/components/syncfusion-theme-manager";
 import React from "react";
 
 const geistSans = Geist({
@@ -34,6 +36,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <SyncfusionLicenseRegistry />
+        <SyncfusionThemeManager />
         {/* Skip to main content link for accessibility */}
         <a
           href="#main-content"

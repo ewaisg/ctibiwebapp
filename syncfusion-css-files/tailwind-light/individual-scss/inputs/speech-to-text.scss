@@ -1,0 +1,181 @@
+@import "../base/base.scss";
+@import "../buttons/button.scss";
+@import "../popups/tooltip.scss";
+
+// Speechtotext component styles
+
+$stt-box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .2), 0 -2px 15px -3px rgba(0, 0, 0, .1), 0 6px 10px rgba(0, 0, 0, .14) !default;
+$stt-focus-box-shadow: $stt-box-shadow, $shadow-focus-ring2 !default;
+$stt-border-radius: 9999px !default;
+$stt-font-weight: 500 !default;
+$stt-font-size: 14px !default;
+$stt-line-height: 16px !default;
+$stt-round-width: 40px !default;
+$stt-round-height: 40px !default;
+$stt-btn-font-size: 16px !default;
+$stt-min-height: 40px !default;
+$stt-min-width: 40px !default;
+$stt-padding: 0 16px !default;
+$stt-margin-top: 0 !default;
+
+$stt-bigger-border-radius: $stt-border-radius !default;
+$stt-bigger-font-weight: 500 !default;
+$stt-bigger-font-size: 16px !default;
+$stt-bigger-line-height: 24px !default;
+$stt-bigger-round-width: 52px !default;
+$stt-bigger-round-height: 52px !default;
+$stt-bigger-btn-font-size: 20px !default;
+$stt-bigger-min-height: 52px !default;
+$stt-bigger-min-width: 52px !default;
+$stt-bigger-padding: 0 20px !default;
+$stt-bigger-margin-top: 0 !default;
+
+@include export-module('speechtotext-layout') {
+  .e-speech-to-text.e-btn {
+    align-items: center;
+    border-radius: $stt-border-radius;
+    display: inline-flex;
+    font-size: $stt-font-size;
+    min-width: $stt-min-width;
+    min-height: $stt-min-height;
+    padding: $stt-padding;
+    @if ($skin-name == 'fluent2') {
+      line-height: 0;
+    }
+    &.e-round {
+      width: $stt-round-width;
+      height: $stt-round-height;
+      padding: 0;
+    }
+    .e-btn-icon {
+      font-size: $stt-font-size;
+      margin-top: $stt-margin-top;
+      @if ($skin-name == 'material' or $skin-name == 'material-dark' or $skin-name == 'Material3') {
+        line-height: 2px;
+        width: 2em;
+      }
+    }
+    &:disabled {
+      pointer-events: none;
+    }
+    &.e-listening-state {
+      animation: listening 1.2s infinite;
+    }
+  }
+
+  .e-speech-to-text.e-round {
+    .e-btn-icon {
+      font-size: $stt-btn-font-size;
+      @if ($skin-name == 'FluentUI') {
+        margin-top: 0;
+      }
+      @if ($skin-name == 'fluent2' or $skin-name == 'material' or $skin-name == 'material-dark' or $skin-name == 'fabric-dark') {
+        margin-top: 1px;
+      }
+    }
+  }
+
+  @keyframes listening {
+    0% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: .5;
+    }
+  }
+}
+
+
+@include export-module('speechtotext-theme') {
+  // Speechtotext component styles
+  .e-speech-to-text {
+    box-shadow: $stt-box-shadow;
+
+    &:hover:not(:focus),
+    &:active,
+    &.e-active,
+    &:disabled {
+      box-shadow: $stt-box-shadow;
+    }
+
+    &:focus {
+      @if ($skin-name != 'tailwind' and $skin-name != 'tailwind-dark' and $skin-name != 'tailwind3' and $skin-name != 'bootstrap4' and $skin-name != 'bootstrap5' and $skin-name != 'bootstrap5.3' and $skin-name != 'bootstrap5-dark') {
+        box-shadow: $stt-box-shadow;
+      }
+      @if $skin-name == 'tailwind' {
+        box-shadow: $stt-focus-box-shadow;
+      }
+    }
+    @if $skin-name == 'tailwind3' {
+      &:focus-visible {
+        box-shadow: $stt-focus-box-shadow !important; /* stylelint-disable-line declaration-no-important */
+      }
+    }
+    &.e-flat {
+      box-shadow: none;
+    }
+  }
+}
+
+
+@include export-module('speechtotext-tailwind-icons') {
+  .e-listen-icon::before {
+    content: '\e91c';
+  }
+  .e-listen-stop::before {
+    content: '\e919';
+  }
+}
+
+@include export-module('speechtotext-bigger') {
+  // Speechtotext component styles
+
+  .e-bigger .e-speech-to-text.e-btn,
+  .e-bigger.e-speech-to-text.e-btn {
+    align-items: center;
+    border-radius: $stt-bigger-border-radius;
+    display: inline-flex;
+    font-size: $stt-bigger-font-size;
+    min-width: $stt-bigger-min-width;
+    min-height: $stt-bigger-min-height;
+    padding: $stt-bigger-padding;
+    @if ($skin-name == 'FluentUI') {
+      line-height: 0;
+      display: inline;
+    }
+    &.e-round {
+      width: $stt-bigger-round-width;
+      height: $stt-bigger-round-height;
+      padding: 0;
+    }
+    .e-btn-icon {
+      font-size: $stt-bigger-font-size;
+      @if ($skin-name == 'material' or $skin-name == 'material-dark' or $skin-name == 'Material3') {
+        line-height: 1px;
+        width: 2em;
+      }
+      @if ($skin-name != 'bootstrap4' or $skin-name != 'bootstrap' or $skin-name != 'bootstrap-dark') {
+        margin-top: $stt-bigger-margin-top;
+      }
+    }
+  }
+
+  .e-bigger .e-speech-to-text.e-round,
+  .e-bigger.e-speech-to-text.e-round {
+    .e-btn-icon {
+      font-size: $stt-bigger-btn-font-size;
+      @if ($skin-name == 'FluentUI') {
+        margin-top: -2px;
+      }
+      @if ($skin-name == 'fluent2'or $skin-name == 'Material3') {
+        margin-top: 0;
+      }
+      @if ($skin-name == 'material' or $skin-name == 'fabric-dark') {
+        margin-top: 1px;
+      }
+    }
+  }
+}

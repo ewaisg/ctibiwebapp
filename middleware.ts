@@ -63,7 +63,7 @@ function addSecurityHeaders(response: NextResponse) {
   // Content Security Policy
   response.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com;"
   );
 
   // Security headers
@@ -79,6 +79,10 @@ function addSecurityHeaders(response: NextResponse) {
 }
 
 function isStateChangingRequest(request: NextRequest): boolean {
+  // Exclude auth session endpoints from CSRF check as they handle their own security
+  if (request.nextUrl.pathname.startsWith('/api/auth/session')) {
+    return false;
+  }
   return ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method);
 }
 

@@ -132,7 +132,14 @@ function checkRateLimit(request: NextRequest): { allowed: boolean; retryAfter: n
 
 function isProtectedRoute(request: NextRequest): boolean {
   const protectedPaths = ['/dashboard', '/projects', '/invoices', '/timesheets', '/invoicing', '/admin', '/api'];
-  return protectedPaths.some(path => request.nextUrl.pathname.startsWith(path));
+  const pathname = request.nextUrl.pathname;
+
+  // Exclude auth endpoints from protection as they handle their own authentication
+  if (pathname.startsWith('/api/auth')) {
+    return false;
+  }
+
+  return protectedPaths.some(path => pathname.startsWith(path));
 }
 
 function validateAuthentication(request: NextRequest): { valid: boolean } {

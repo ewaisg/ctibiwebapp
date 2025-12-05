@@ -28,7 +28,7 @@ interface ProjectBudgetRadialProps {
   subtitle?: string;
 }
 
-function ProjectBudgetRadial({ data = [] as ProjectBudgetDatum[], title = "Project Budget Utilization", subtitle = "PO used vs remaining (combined)" }: ProjectBudgetRadialProps) {
+function ProjectBudgetRadial({ data = [] as ProjectBudgetDatum[], title = "Overall Projects Budget Utilization", subtitle = "PO used vs remaining" }: ProjectBudgetRadialProps) {
   const { resolvedTheme } = useTheme();
   const [sfTheme, setSfTheme] = useState<AccumulationTheme>('Tailwind');
 

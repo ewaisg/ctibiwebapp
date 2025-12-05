@@ -79,10 +79,19 @@ function addSecurityHeaders(response: NextResponse) {
 }
 
 function isStateChangingRequest(request: NextRequest): boolean {
-  // Exclude auth session endpoints from CSRF check as they handle their own security
-  if (request.nextUrl.pathname.startsWith('/api/auth/session')) {
+  const pathname = request.nextUrl.pathname;
+
+  // Only apply CSRF protection to API routes (not page routes)
+  // Page routes are protected by session cookies and Next.js built-in CSRF protection
+  if (!pathname.startsWith('/api/')) {
     return false;
   }
+
+  // Exclude auth endpoints from CSRF check as they handle their own security
+  if (pathname.startsWith('/api/auth/')) {
+    return false;
+  }
+
   return ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method);
 }
 

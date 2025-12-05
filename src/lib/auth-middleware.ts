@@ -27,19 +27,23 @@ export async function withAuth(
 
       // Extract token from Authorization header or cookie
       const authHeader = req.headers.get('Authorization');
-      const token = authHeader?.startsWith('Bearer ')
-        ? authHeader.substring(7)
-        : req.cookies.get('__session')?.value;
+      const sessionCookie = req.cookies.get('__session')?.value;
 
-      if (!token) {
+      let decodedToken;
+
+      if (authHeader?.startsWith('Bearer ')) {
+        // Verify ID token from Authorization header
+        const idToken = authHeader.substring(7);
+        decodedToken = await getAuth().verifyIdToken(idToken);
+      } else if (sessionCookie) {
+        // Verify session cookie
+        decodedToken = await getAuth().verifySessionCookie(sessionCookie, true);
+      } else {
         return NextResponse.json(
           { error: 'Authentication required' },
           { status: 401 }
         );
       }
-
-      // Verify Firebase token
-      const decodedToken = await getAuth().verifyIdToken(token);
 
       // Compute effective role and companyId: prefer custom claim, fallback to Firestore users
       let effectiveRole: string | undefined = (decodedToken as any).role;

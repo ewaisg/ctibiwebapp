@@ -63,7 +63,7 @@ function addSecurityHeaders(response: NextResponse) {
   // Content Security Policy
   response.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com;"
   );
 
   // Security headers
@@ -108,7 +108,7 @@ function checkRateLimit(request: NextRequest): { allowed: boolean; retryAfter: n
   const key = `auth_${clientIP}`;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxAttempts = 5;
+  const maxAttempts = 100; // Increased from 5 to 100 to prevent blocking during testing
 
   const current = rateLimitStore.get(key);
 

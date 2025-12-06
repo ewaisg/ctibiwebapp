@@ -13,25 +13,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal, FileEdit } from "lucide-react";
+import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal } from "lucide-react";
 import { TemplateUploadDialog } from "@/components/template-upload-dialog";
 import { TemplateAssignmentDialog } from "@/components/template-assignment-dialog";
 import { PdfFieldMapper } from "@/components/pdf-field-mapper/PdfFieldMapper";
-import type { PdfTemplate, TemplateAssignment, ExtendedPdfTemplate } from "@/types";
+import type { PdfTemplate, TemplateAssignment } from "@/types";
 import type { VisualTemplate } from "@/types/template-designer";
 import type { MappedPdfTemplate } from "@/types/pdf-field-mapper";
-import toast from "react-hot-toast";
 
 // Dynamic import for TemplateDesignerDialog to avoid SSR issues with fabric.js
 const TemplateDesignerDialog = dynamic(
   () => import("@/components/template-designer/TemplateDesignerDialog").then(mod => ({ default: mod.TemplateDesignerDialog })),
   { ssr: false }
-);
-
-// Dynamic import for SyncfusionFormDesigner to avoid SSR issues
-const SyncfusionFormDesigner = dynamic(
-  () => import("@/components/form-designer/SyncfusionFormDesigner").then(mod => ({ SyncfusionFormDesigner: mod.SyncfusionFormDesigner })).then(mod => mod.SyncfusionFormDesigner),
-  { ssr: false, loading: () => <div className="flex items-center justify-center h-64">Loading Form Designer...</div> }
 );
 
 interface PdfTemplatesClientPageProps {
@@ -41,7 +34,7 @@ interface PdfTemplatesClientPageProps {
 
 export function PdfTemplatesClientPage({ showBackButton = false, showTitle = true }: PdfTemplatesClientPageProps) {
   const { user, secureRequest, firebaseUser, isLoading, refreshIdToken } = useAuth() as any;
-  const [templates, setTemplates] = useState<ExtendedPdfTemplate[]>([]);
+  const [templates, setTemplates] = useState<PdfTemplate[]>([]);
   const [visualTemplates, setVisualTemplates] = useState<VisualTemplate[]>([]);
   const [mappedTemplates, setMappedTemplates] = useState<MappedPdfTemplate[]>([]);
   const [assignments, setAssignments] = useState<TemplateAssignment[]>([]);
@@ -53,10 +46,6 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
   const [editingTemplate, setEditingTemplate] = useState<VisualTemplate | null>(null);
   const [fieldMapperOpen, setFieldMapperOpen] = useState(false);
   const [editingMappedTemplate, setEditingMappedTemplate] = useState<MappedPdfTemplate | null>(null);
-
-  // NEW: Form Designer state
-  const [formDesignerOpen, setFormDesignerOpen] = useState(false);
-  const [editingForm, setEditingForm] = useState<ExtendedPdfTemplate | null>(null);
 
   // Load after auth is ready to ensure Authorization header is present
   useEffect(() => {
@@ -98,18 +87,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       if (templatesRes.ok) {
         const raw = await templatesRes.json();
         const list = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
-        console.log('📥 Loaded templates:', list.length);
-        console.log('📥 Templates with syncfusionFormFields:',
-          list.filter((t: any) => t.syncfusionFormFields && t.syncfusionFormFields.length > 0).length
-        );
-        if (list.length > 0) {
-          console.log('📥 Sample template:', {
-            name: list[0].templateName,
-            hasSyncfusionFields: !!list[0].syncfusionFormFields,
-            syncfusionFieldsCount: list[0].syncfusionFormFields?.length || 0,
-          });
-        }
-        setTemplates(list as unknown as ExtendedPdfTemplate[]);
+        setTemplates(list as unknown as PdfTemplate[]);
       }
       // Do not clear on transient errors; keep previous data visible
 
@@ -142,89 +120,6 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
     }
   };
 
-  // NEW: Form Designer handlers
-  const handleOpenFormDesigner = () => {
-    setEditingForm(null);
-    setFormDesignerOpen(true);
-  };
-
-  const handleEditForm = (template: ExtendedPdfTemplate) => {
-    setEditingForm(template);
-    setFormDesignerOpen(true);
-  };
-
-  const handleFormSave = async (template: ExtendedPdfTemplate) => {
-    try {
-      console.log('🔵 Saving form with data:', {
-        templateName: template.templateName,
-        templateType: template.templateType,
-        syncfusionFormFieldsCount: template.syncfusionFormFields?.length || 0,
-        fieldMappingsCount: template.fieldMappings?.length || 0,
-        hasPdfData: !!template.base64Data,
-      });
-
-      const response = await secureRequest('/api/pdf-templates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(template),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Form saved successfully:', result);
-        toast.success('Form saved successfully!');
-        setFormDesignerOpen(false);
-        setEditingForm(null);
-        await loadData();
-      } else {
-        const error = await response.json();
-        console.error('❌ Failed to save form:', error);
-        toast.error(`Failed to save form: ${error.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('❌ Error saving form:', error);
-      toast.error('Failed to save form. Please try again.');
-    }
-  };
-
-  const handleFormCancel = () => {
-    setFormDesignerOpen(false);
-    setEditingForm(null);
-  };
-
-  const deleteForm = async (templateId: string) => {
-    if (!confirm('Are you sure you want to delete this form?')) return;
-
-    try {
-      const response = await secureRequest(`/api/pdf-templates/${templateId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        toast.success('Form deleted successfully');
-        loadData();
-      } else {
-        toast.error('Failed to delete form');
-      }
-    } catch (error) {
-      console.error('Error deleting form:', error);
-      toast.error('Failed to delete form');
-    }
-  };
-
-  // Filter templates with Syncfusion form fields (new forms)
-  const syncfusionForms = templates.filter(t => t.syncfusionFormFields && t.syncfusionFormFields.length > 0);
-  console.log('🔍 Filter results:', {
-    totalTemplates: templates.length,
-    syncfusionForms: syncfusionForms.length,
-    legacyTemplates: templates.length - syncfusionForms.length,
-  });
-
-  // Filter templates without Syncfusion form fields (legacy templates)
-  const legacyTemplates = templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0);
-
   const handleTemplateUploaded = () => {
     loadData();
   };
@@ -235,12 +130,12 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
 
   const deleteTemplate = async (templateId: string) => {
     if (!confirm('Are you sure you want to delete this template?')) return;
-
+    
     try {
       const response = await secureRequest(`/api/pdf-templates/${templateId}`, {
         method: 'DELETE'
       });
-
+      
       if (response.ok) {
         loadData();
       }
@@ -257,12 +152,12 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
 
   const deleteAssignment = async (assignmentId: string) => {
     if (!confirm('Are you sure you want to delete this template assignment?')) return;
-
+    
     try {
       const response = await secureRequest(`/api/template-assignments/${assignmentId}`, {
         method: 'DELETE'
       });
-
+      
       if (response.ok) {
         // Show success feedback
         console.log('Assignment deleted successfully');
@@ -421,113 +316,12 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
         </div>
       )}
 
-      <Tabs defaultValue="form-designer" className="space-y-4">
+      <Tabs defaultValue="templates" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="form-designer">
-            <FileEdit className="mr-2 h-4 w-4" />
-            Form Designer
-          </TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="field-mapper">Field Mapper</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
         </TabsList>
-
-        {/* NEW: Form Designer Tab */}
-        <TabsContent value="form-designer" className="space-y-4">
-          {formDesignerOpen ? (
-            <div className="h-[calc(100vh-12rem)] border rounded-lg overflow-hidden">
-              <SyncfusionFormDesigner
-                templateId={editingForm?.id}
-                existingTemplate={editingForm || undefined}
-                onSave={handleFormSave}
-                onCancel={handleFormCancel}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-medium">Syncfusion Form Designer</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Create PDF forms with visual field mapping to your database
-                  </p>
-                </div>
-                <Button onClick={handleOpenFormDesigner}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create New Form
-                </Button>
-              </div>
-
-              {syncfusionForms.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <FileEdit className="h-16 w-16 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Forms Yet</h3>
-                    <p className="text-muted-foreground text-center mb-4 max-w-md">
-                      Create your first form using Syncfusion Form Designer. Upload a PDF and add form fields with visual database mapping.
-                    </p>
-                    <Button onClick={handleOpenFormDesigner}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create First Form
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {syncfusionForms.map((form) => (
-                    <Card key={form.id}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">{form.templateName}</CardTitle>
-                          <Badge variant={form.isActive ? "default" : "secondary"}>
-                            {form.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </div>
-                        <CardDescription>
-                          {form.templateType} • v{form.version || 1}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditForm(form)}
-                          >
-                            <Edit className="mr-2 h-3 w-3" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => previewTemplate(form.id)}
-                          >
-                            <Eye className="mr-2 h-3 w-3" />
-                            Preview
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => deleteForm(form.id)}
-                          >
-                            <Trash2 className="mr-2 h-3 w-3" />
-                            Delete
-                          </Button>
-                        </div>
-                        <div className="text-xs text-muted-foreground space-y-1">
-                          <div>{form.syncfusionFormFields?.length || 0} form fields</div>
-                          <div>{form.fieldMappings?.length || 0} mapped fields</div>
-                          <div>{form.pageCount || 0} pages</div>
-                          <div>Source: {form.dataSourceConfig?.primaryCollection || 'N/A'}</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </TabsContent>
 
         <TabsContent value="templates" className="space-y-4">
           {/* Visual Templates Section */}
@@ -615,7 +409,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
             </TemplateUploadDialog>
           </div>
 
-          {legacyTemplates.length === 0 ? (
+          {templates.length === 0 ? (
             <Card className="col-span-full">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <FileText className="h-16 w-16 text-muted-foreground mb-4" />
@@ -633,7 +427,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {legacyTemplates.map((template) => (
+              {templates.map((template) => (
               <Card key={template.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
@@ -643,21 +437,21 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     </Badge>
                   </div>
                   <CardDescription>
-                    {template.templateType} • {template.fieldMappings?.length ?? 0} fields mapped
+                    {template.templateType} • {(template as any).fieldMappings?.length ?? 0} fields mapped
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
+                    <Button 
+                      variant="outline" 
                       size="sm"
                       onClick={() => previewTemplate(template.id)}
                     >
                       <Eye className="mr-2 h-3 w-3" />
                       Preview
                     </Button>
-                    <Button
-                      variant="outline"
+                    <Button 
+                      variant="outline" 
                       size="sm"
                       onClick={() => deleteTemplate(template.id)}
                     >
@@ -666,7 +460,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     </Button>
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground">
-                    Created by {template.createdByName || 'Unknown'}
+                    Created by {template.createdByName || (template as any).createdBy || 'Unknown'}
                   </div>
                 </CardContent>
               </Card>
@@ -765,7 +559,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-medium">Template Assignments</h3>
             <TemplateAssignmentDialog
-              templates={legacyTemplates}
+              templates={templates}
               visualTemplates={visualTemplates}
               onAssignmentCreated={handleAssignmentCreated}
             >
@@ -792,7 +586,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     Assign templates to contracts, departments, or projects to control which templates are used for invoice generation.
                   </p>
                   <TemplateAssignmentDialog
-                    templates={legacyTemplates}
+                    templates={templates}
                     visualTemplates={visualTemplates}
                     onAssignmentCreated={handleAssignmentCreated}
                   >
@@ -828,7 +622,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem
+                          <DropdownMenuItem 
                             onClick={() => deleteAssignment(assignment.id)}
                             className="text-destructive"
                           >
@@ -850,7 +644,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       {/* Edit Assignment Dialog */}
       {editingAssignment && (
         <TemplateAssignmentDialog
-          templates={legacyTemplates}
+          templates={templates}
           visualTemplates={visualTemplates}
           onAssignmentCreated={() => {
             handleAssignmentCreated();

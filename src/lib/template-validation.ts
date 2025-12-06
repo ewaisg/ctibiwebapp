@@ -140,10 +140,11 @@ export function validateTemplateAssignment(assignment: Partial<TemplateAssignmen
 
 /**
  * Sanitize template data
+ * Returns any type to support both PdfTemplate and ExtendedPdfTemplate
  */
-export function sanitizeTemplateData(template: any): Partial<PdfTemplate> {
+export function sanitizeTemplateData(template: any): any {
   const templateType = sanitizeTemplateValue(template.templateType);
-  const sanitized: Partial<PdfTemplate> = {
+  const sanitized: any = {
     templateName: sanitizeTemplateValue(template.templateName),
     templateType: ['Invoice', 'CoverPage', 'Report', 'Custom'].includes(templateType)
       ? (templateType as 'Invoice' | 'CoverPage' | 'Report' | 'Custom')
@@ -158,6 +159,13 @@ export function sanitizeTemplateData(template: any): Partial<PdfTemplate> {
     createdBy: sanitizeTemplateValue(template.createdBy),
     createdByName: sanitizeTemplateValue(template.createdByName),
     manualOnly: Boolean(template.manualOnly),
+    // Extended fields for Syncfusion Form Designer
+    syncfusionFormFields: template.syncfusionFormFields,
+    tableMappings: template.tableMappings,
+    dataSourceConfig: template.dataSourceConfig,
+    pageCount: typeof template.pageCount === 'number' ? template.pageCount : undefined,
+    version: typeof template.version === 'number' ? template.version : undefined,
+    id: sanitizeTemplateValue(template.id),
   };
   return stripUndefinedDeep(sanitized);
 }

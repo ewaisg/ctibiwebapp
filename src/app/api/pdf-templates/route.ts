@@ -167,10 +167,28 @@ export async function POST(request: NextRequest) {
         isActive: true,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
+        // Extended fields (optional, for Syncfusion Form Designer)
+        syncfusionFormFields: sanitizedMetadata.syncfusionFormFields || [],
+        tableMappings: sanitizedMetadata.tableMappings || [],
+        dataSourceConfig: sanitizedMetadata.dataSourceConfig || null,
+        pageCount: sanitizedMetadata.pageCount || 0,
+        version: sanitizedMetadata.version || 1,
       };
 
+      // If updating existing template
+      if (sanitizedMetadata.id) {
+        await adminDb.collection('pdfTemplates').doc(sanitizedMetadata.id).update({
+          ...templateData,
+          id: sanitizedMetadata.id,
+          updatedAt: Timestamp.now(),
+        });
+        return NextResponse.json({ id: sanitizedMetadata.id, templateId: sanitizedMetadata.id, success: true });
+      }
+
+      // Create new template
       const docRef = await adminDb.collection('pdfTemplates').add(templateData);
-      return NextResponse.json({ id: docRef.id, success: true });
+      await adminDb.collection('pdfTemplates').doc(docRef.id).update({ id: docRef.id });
+      return NextResponse.json({ id: docRef.id, templateId: docRef.id, success: true });
     } catch (error) {
       return handleApiError(error);
     }

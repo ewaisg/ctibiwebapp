@@ -386,6 +386,124 @@ export interface TemplateAssignment {
   createdByName: string; // Denormalized for easier querying
 }
 
+// ============================================================================
+// EXTENDED PDF TEMPLATE TYPES (Syncfusion Form Designer Support)
+// ============================================================================
+
+/**
+ * Syncfusion form field extracted from PDF or created in Form Designer
+ * Maps to Syncfusion ej2-pdfviewer form field types
+ */
+export interface SyncfusionFormField {
+  name: string;
+  type: 'Textbox' | 'Checkbox' | 'RadioButton' | 'DropDown' | 'ListBox' | 'SignatureField' | 'Password' | 'InitialField';
+  bounds: {
+    X: number;
+    Y: number;
+    Width: number;
+    Height: number;
+  };
+  pageNumber: number;
+  isRequired?: boolean;
+  isReadOnly?: boolean;
+  defaultValue?: string;
+  maxLength?: number;
+  // For dropdown/listbox/radio
+  options?: string[];
+  // For signature
+  signatureType?: string;
+}
+
+/**
+ * Table mapping for dynamic repeating data (e.g., invoice line items)
+ * Maps array data to PDF form fields in a tabular pattern
+ */
+export interface TableMapping {
+  id: string;
+  name: string;
+  dataPath: string; // e.g., 'invoiceItems' for invoice.invoiceItems array
+  sourceCollection: string; // e.g., 'invoices'
+  startY: number; // Y coordinate where table starts
+  rowHeight: number; // Height of each row in points
+  maxRows: number; // Maximum number of rows to render
+  columns: TableColumnMapping[];
+}
+
+/**
+ * Individual column in a table mapping
+ */
+export interface TableColumnMapping {
+  formFieldPattern: string; // e.g., 'item_description_{row}' where {row} is replaced with row number
+  dataField: string; // Field name in the array item, e.g., 'description' for item.description
+  width?: number; // Column width for reference
+  transform?: TemplateFieldMapping['fieldType']; // Optional transform: 'date' | 'currency' | etc.
+  format?: string; // Format string for transforms, e.g., 'MM/DD/YYYY' or '$0,0.00'
+}
+
+/**
+ * Enhanced data source configuration for form generation
+ */
+export interface DataSourceConfig {
+  primaryCollection: string; // Main collection: 'invoices', 'projects', 'contracts', etc.
+  joins?: DataJoin[]; // Related collections to fetch
+  defaultFilters?: DataFilter[]; // Default filters when selecting data
+}
+
+/**
+ * Join configuration for fetching related collections
+ */
+export interface DataJoin {
+  collection: string; // Collection to join: 'contracts', 'projects', 'departments', etc.
+  localField: string; // Field in primary collection: 'contractId', 'projectId', etc.
+  foreignField: string; // Field in joined collection: typically 'id'
+  alias: string; // Alias for joined data: 'contract', 'project', etc.
+  required?: boolean; // Whether join is required
+}
+
+/**
+ * Filter configuration for data selection
+ */
+export interface DataFilter {
+  field: string; // Field to filter on
+  operator: '==' | '!=' | '>' | '<' | '>=' | '<=' | 'in' | 'array-contains' | 'array-contains-any';
+  value: any; // Filter value
+}
+
+/**
+ * Extended assignment with more granular control
+ * Extends TemplateAssignment with additional assignment levels
+ */
+export interface ExtendedTemplateAssignment extends TemplateAssignment {
+  assignmentLevel?: 'type' | 'entity' | 'relationship'; // More granular than assignmentType
+  priority?: number; // Higher number = higher priority (entity > relationship > type)
+
+  // For relationship-level assignments (e.g., "all invoices for client X")
+  relationshipFilters?: {
+    field: string; // e.g., 'clientId'
+    operator: '==' | '!=' | 'in';
+    value: string | string[]; // e.g., 'client123' or ['client1', 'client2']
+  }[];
+}
+
+/**
+ * Extended PdfTemplate with Syncfusion form fields and enhanced features
+ * Backward compatible - all new fields are optional
+ */
+export interface ExtendedPdfTemplate extends PdfTemplate {
+  // Syncfusion form fields (optional - for forms created/edited with Syncfusion Form Designer)
+  syncfusionFormFields?: SyncfusionFormField[];
+
+  // Table mappings for dynamic repeating data
+  tableMappings?: TableMapping[];
+
+  // Enhanced data source configuration
+  dataSourceConfig?: DataSourceConfig;
+
+  // Metadata
+  pageCount?: number;
+  version?: number; // Template version for tracking changes
+}
+
 // User role and permission types
 export type UserRole = 'Admin' | 'Prime' | 'Subconsultant';
 

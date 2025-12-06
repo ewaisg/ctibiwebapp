@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       console.error('Error fetching templates:', sanitizeForLog(error));
       return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 });
     }
-  }, { requiredRole: 'Admin' });
+  });
 
   const limited = withRateLimit(handler);
   return limited(request);
@@ -175,6 +175,14 @@ export async function POST(request: NextRequest) {
         version: sanitizedMetadata.version || 1,
       };
 
+      console.log('💾 Saving template to Firestore:', {
+        templateName: templateData.templateName,
+        hasBase64: !!templateData.base64Data,
+        hasStorageUrl: !!templateData.storageUrl,
+        syncfusionFormFieldsCount: templateData.syncfusionFormFields.length,
+        isUpdate: !!sanitizedMetadata.id,
+      });
+
       // If updating existing template
       if (sanitizedMetadata.id) {
         await adminDb.collection('pdfTemplates').doc(sanitizedMetadata.id).update({
@@ -182,12 +190,14 @@ export async function POST(request: NextRequest) {
           id: sanitizedMetadata.id,
           updatedAt: Timestamp.now(),
         });
+        console.log('✅ Updated template:', sanitizedMetadata.id);
         return NextResponse.json({ id: sanitizedMetadata.id, templateId: sanitizedMetadata.id, success: true });
       }
 
       // Create new template
       const docRef = await adminDb.collection('pdfTemplates').add(templateData);
       await adminDb.collection('pdfTemplates').doc(docRef.id).update({ id: docRef.id });
+      console.log('✅ Created new template:', docRef.id);
       return NextResponse.json({ id: docRef.id, templateId: docRef.id, success: true });
     } catch (error) {
       return handleApiError(error);

@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Settings, Loader2 } from "lucide-react";
 import { extractId } from "@/lib/document-reference-utils";
 import type { PdfTemplate, Contract, Department, Project, TemplateAssignment } from "@/types";
@@ -64,6 +65,7 @@ export function TemplateAssignmentDialog({
   const [templateId, setTemplateId] = useState<string>("");
   const [templateType, setTemplateType] = useState<string>("");
   const [templateSource, setTemplateSource] = useState<"pdf" | "visual">("pdf");
+  const [assignmentScope, setAssignmentScope] = useState<"all" | "specific">("specific");
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -93,6 +95,13 @@ export function TemplateAssignmentDialog({
       setTemplateSource(isVisual ? 'visual' : 'pdf');
       setTemplateId(templateIdStr.replace('pdfTemplates/', '').replace('visual_templates/', ''));
       setTemplateType(editingAssignment.templateType);
+
+      // Set scope based on assignmentId
+      if (editingAssignment.assignmentId === 'all' || (editingAssignment.assignmentId === 'global' && editingAssignment.assignmentType !== 'Global')) {
+        setAssignmentScope('all');
+      } else {
+        setAssignmentScope('specific');
+      }
     } else if (open) {
       // Reset form for new assignment
       setAssignmentType("");
@@ -100,6 +109,7 @@ export function TemplateAssignmentDialog({
       setTemplateId("");
       setTemplateType("");
       setTemplateSource("pdf");
+      setAssignmentScope("specific");
     }
   }, [editingAssignment, open]);
 
@@ -136,7 +146,7 @@ export function TemplateAssignmentDialog({
       return;
     }
 
-    if (assignmentType !== 'Global' && !assignmentId) {
+    if (assignmentType !== 'Global' && assignmentScope === 'specific' && !assignmentId) {
       alert('Please select an assignment target');
       return;
     }
@@ -150,21 +160,29 @@ export function TemplateAssignmentDialog({
         : templates.find(t => t.id === templateId);
 
       let assignmentName = 'Global Default';
+      let finalAssignmentId = assignmentId;
 
-      if (assignmentType === 'Contract') {
-        const contract = contracts.find(c => c.id === assignmentId);
-        assignmentName = contract?.contractName || 'Unknown Contract';
-      } else if (assignmentType === 'Department') {
-        const department = departments.find(d => d.id === assignmentId);
-        assignmentName = department?.departmentName || 'Unknown Department';
-      } else if (assignmentType === 'Project') {
-        const project = projects.find(p => p.id === assignmentId);
-        assignmentName = project?.projectName || 'Unknown Project';
+      if (assignmentType === 'Global') {
+        finalAssignmentId = 'global';
+      } else if (assignmentScope === 'all') {
+        finalAssignmentId = 'all';
+        assignmentName = `All ${assignmentType}s`;
+      } else {
+        if (assignmentType === 'Contract') {
+          const contract = contracts.find(c => c.id === assignmentId);
+          assignmentName = contract?.contractName || 'Unknown Contract';
+        } else if (assignmentType === 'Department') {
+          const department = departments.find(d => d.id === assignmentId);
+          assignmentName = department?.departmentName || 'Unknown Department';
+        } else if (assignmentType === 'Project') {
+          const project = projects.find(p => p.id === assignmentId);
+          assignmentName = project?.projectName || 'Unknown Project';
+        }
       }
 
       const assignmentData = {
         assignmentType,
-        assignmentId: assignmentType === 'Global' ? 'global' : assignmentId,
+        assignmentId: finalAssignmentId,
         assignmentName,
         templateId,
         templateName: (template as any)?.templateName || (template as any)?.name || 'Unknown Template',
@@ -279,7 +297,7 @@ export function TemplateAssignmentDialog({
                 <SelectValue placeholder="Select template source" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="pdf">PDF Templates (Legacy)</SelectItem>
+                <SelectItem value="pdf">PDF Templates</SelectItem>
                 <SelectItem value="visual">Visual Templates (Designer)</SelectItem>
               </SelectContent>
             </Select>
@@ -295,7 +313,7 @@ export function TemplateAssignmentDialog({
                 <SelectItem value="Invoice">Invoice</SelectItem>
                 <SelectItem value="CoverPage">Cover Page</SelectItem>
                 <SelectItem value="Report">Report</SelectItem>
-                {templateSource === 'visual' && <SelectItem value="Custom">Custom</SelectItem>}
+                <SelectItem value="Custom">Custom</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -337,6 +355,26 @@ export function TemplateAssignmentDialog({
           </div>
 
           {assignmentType && assignmentType !== 'Global' && (
+            <div className="space-y-2">
+              <Label>Assignment Scope *</Label>
+              <RadioGroup 
+                value={assignmentScope} 
+                onValueChange={(v) => setAssignmentScope(v as "all" | "specific")} 
+                className="flex gap-4 pt-1"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="all" id="scope-all" />
+                  <Label htmlFor="scope-all" className="cursor-pointer">All {assignmentType}s</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="specific" id="scope-specific" />
+                  <Label htmlFor="scope-specific" className="cursor-pointer">Specific {assignmentType}</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
+
+          {assignmentType && assignmentType !== 'Global' && assignmentScope === 'specific' && (
             <div className="space-y-2">
               <Label>Assign To *</Label>
               <Select value={assignmentId} onValueChange={setAssignmentId}>

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { FileText, Download, Eye, Filter, Calendar, Loader2, XCircle, Building2, FolderKanban, FileCheck, Sparkles, ArrowLeft } from "lucide-react";
 import type { VisualTemplate } from "@/types/template-designer";
-import type { PdfTemplate, Department, Project, Contract } from "@/types";
+import type { PdfTemplate, Department, Project, Contract, TemplateAssignment } from "@/types";
 import { ReportTemplatesGallery } from "@/components/reports/ReportTemplatesGallery";
 import type { ReportTemplate } from "@/lib/report-templates";
 
@@ -34,6 +34,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
   const { secureRequest, isLoading: authLoading } = useAuth() as any;
   const [visualTemplates, setVisualTemplates] = useState<VisualTemplate[]>([]);
   const [pdfTemplates, setPdfTemplates] = useState<PdfTemplate[]>([]);
+  const [assignments, setAssignments] = useState<TemplateAssignment[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<VisualTemplate | PdfTemplate | null>(null);
   const [templateSource, setTemplateSource] = useState<"pdf" | "visual">("visual");
   const [dataSource, setDataSource] = useState<string>("");
@@ -85,9 +86,10 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
   const loadTemplates = async () => {
     setLoading(true);
     try {
-      const [visualRes, pdfRes] = await Promise.all([
+      const [visualRes, pdfRes, assignmentsRes] = await Promise.all([
         secureRequest('/api/visual-templates'),
-        secureRequest('/api/pdf-templates')
+        secureRequest('/api/pdf-templates'),
+        secureRequest('/api/template-assignments')
       ]);
 
       if (visualRes.ok) {
@@ -98,6 +100,12 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
       if (pdfRes.ok) {
         const data = await pdfRes.json();
         setPdfTemplates(data.items || []);
+      }
+
+      if (assignmentsRes.ok) {
+        const data = await assignmentsRes.json();
+        // API returns array directly, or object with items if paginated (future proofing)
+        setAssignments(Array.isArray(data) ? data : (data.items || []));
       }
     } catch (error) {
       console.error('Error loading templates:', error);
@@ -165,7 +173,52 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     }
   };
 
-  const availableTemplates = templateSource === 'visual' ? visualTemplates : pdfTemplates;
+  const availableTemplates = useMemo(() => {
+    const sourceTemplates = templateSource === 'visual' ? visualTemplates : pdfTemplates;
+    
+    return sourceTemplates.filter(template => {
+      // Find all assignments for this template
+      const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
+      
+      // If no active assignments, don't show (unless we want to show unassigned ones? Assuming no)
+      if (templateAssignments.length === 0) return false;
+      
+      // Check if any assignment matches current filters
+      return templateAssignments.some(assignment => {
+        // Global always visible
+        if (assignment.assignmentType === 'Global') return true;
+        
+        // Contract Logic
+        if (assignment.assignmentType === 'Contract') {
+          // If "All Contracts", visible if no contract selected OR any contract selected
+          if (assignment.assignmentId === 'all') return true;
+          // If Specific Contract, visible if no filter OR matches filter
+          return !filters.contractId || filters.contractId === assignment.assignmentId;
+        }
+        
+        // Department Logic
+        if (assignment.assignmentType === 'Department') {
+          if (assignment.assignmentId === 'all') return true;
+          return !filters.departmentId || filters.departmentId === assignment.assignmentId;
+        }
+        
+        // Project Logic
+        if (assignment.assignmentType === 'Project') {
+          if (assignment.assignmentId === 'all') return true;
+          return !filters.projectId || filters.projectId === assignment.assignmentId;
+        }
+        
+        return false;
+      });
+    });
+  }, [templateSource, visualTemplates, pdfTemplates, assignments, filters]);
+
+  const visiblePdfTemplates = useMemo(() => {
+    return pdfTemplates.filter(template => {
+      const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
+      return templateAssignments.length > 0;
+    });
+  }, [pdfTemplates, assignments]);
 
   if (loading) {
     return (
@@ -196,6 +249,62 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     setFilters({});
   };
 
+  const handleSelectCustomTemplate = (template: PdfTemplate) => {
+    setSelectedTemplate(template);
+    setTemplateSource('pdf');
+    setViewMode('configure');
+    
+    // Auto-detect data source from mappings
+    if (template.fieldMappings && template.fieldMappings.length > 0) {
+      // Look for known data sources in mapping source fields (e.g. "invoices.invoiceNumber")
+      const firstMapping = template.fieldMappings[0];
+      const sourceField = firstMapping.sourceField || "";
+      const parts = sourceField.split('.');
+      if (parts.length > 1) {
+        // Simple heuristic: if mapping starts with "invoices.", set source to "invoices"
+        // This assumes mappings are like "collection.field" or just "field"
+        // If your mappings are just "invoiceNumber", we might need to look at templateType
+        // But let's try to infer from templateType first as it's more reliable if set correctly
+      }
+    }
+
+    // Infer data source from template type
+    let inferredSource = "";
+    if (template.templateType === 'Invoice') inferredSource = "invoices";
+    else if (template.templateType === 'Report') inferredSource = "projects"; // Default for reports?
+    
+    if (inferredSource) {
+      setDataSource(inferredSource);
+    } else {
+      setDataSource(""); 
+    }
+
+    // Auto-fill filters based on assignments
+    const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
+    const newFilters: ReportFilters = {};
+    
+    // If assigned to a specific project/contract/dept, pre-fill that filter
+    // We prioritize specific assignments over global ones
+    const projectAssignment = templateAssignments.find(a => a.assignmentType === 'Project' && a.assignmentId !== 'all');
+    if (projectAssignment) {
+      newFilters.projectId = projectAssignment.assignmentId as string;
+    }
+
+    const contractAssignment = templateAssignments.find(a => a.assignmentType === 'Contract' && a.assignmentId !== 'all');
+    if (contractAssignment) {
+      newFilters.contractId = contractAssignment.assignmentId as string;
+    }
+
+    const deptAssignment = templateAssignments.find(a => a.assignmentType === 'Department' && a.assignmentId !== 'all');
+    if (deptAssignment) {
+      newFilters.departmentId = deptAssignment.assignmentId as string;
+    }
+
+    setFilters(newFilters);
+  };
+
+
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -205,45 +314,25 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
             Generate custom reports from your templates and data
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant={viewMode === 'templates' || viewMode === 'configure' ? 'default' : 'outline'}
-            onClick={() => {
-              setViewMode('templates');
-              setSelectedReportTemplate(null);
-            }}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            Pre-built Reports
-          </Button>
-          <Button
-            variant={viewMode === 'custom' ? 'default' : 'outline'}
-            onClick={() => {
-              setViewMode('custom');
-              setSelectedReportTemplate(null);
-              setDataSource("");
-              setFilters({});
-            }}
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Custom Reports
-          </Button>
-        </div>
       </div>
 
       {viewMode === 'templates' ? (
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <ReportTemplatesGallery onSelectTemplate={handleSelectReportTemplate} />
+          <div className="lg:col-span-2 space-y-6">
+            <ReportTemplatesGallery 
+              onSelectTemplate={handleSelectReportTemplate} 
+              customTemplates={visiblePdfTemplates}
+              onSelectCustomTemplate={handleSelectCustomTemplate}
+            />
           </div>
           <div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">About Pre-built Reports</CardTitle>
+                <CardTitle className="text-sm">About Reports</CardTitle>
               </CardHeader>
               <CardContent className="text-xs space-y-2 text-muted-foreground">
                 <p>
-                  Pre-built reports are professionally designed templates that provide
+                  Reports are professionally designed templates that provide
                   instant insights into your business operations.
                 </p>
                 <p>
@@ -309,7 +398,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="visual">Visual Templates (Designer)</SelectItem>
-                      <SelectItem value="pdf">PDF Templates (Legacy)</SelectItem>
+                      <SelectItem value="pdf">PDF Templates</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

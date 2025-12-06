@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal, FileEdit } from "lucide-react";
+import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal, FileEdit, Upload } from "lucide-react";
 import { TemplateUploadDialog } from "@/components/template-upload-dialog";
 import { TemplateAssignmentDialog } from "@/components/template-assignment-dialog";
 import { PdfFieldMapper } from "@/components/pdf-field-mapper/PdfFieldMapper";
@@ -214,16 +214,16 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
     }
   };
 
-  // Filter templates with Syncfusion form fields (new forms)
-  const syncfusionForms = templates.filter(t => t.syncfusionFormFields && t.syncfusionFormFields.length > 0);
+  // Form Designer tab shows ALL templates (you can add form fields to any template)
+  const syncfusionForms = templates;
   console.log('🔍 Filter results:', {
     totalTemplates: templates.length,
-    syncfusionForms: syncfusionForms.length,
-    legacyTemplates: templates.length - syncfusionForms.length,
+    templatesWithFormFields: templates.filter(t => t.syncfusionFormFields && t.syncfusionFormFields.length > 0).length,
+    templatesWithoutFormFields: templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0).length,
   });
 
-  // Filter templates without Syncfusion form fields (legacy templates)
-  const legacyTemplates = templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0);
+  // Legacy templates tab shows templates without form designer enhancements (for backward compatibility)
+  // const legacyTemplates = templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0);
 
   const handleTemplateUploaded = () => {
     loadData();
@@ -427,8 +427,6 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
             <FileEdit className="mr-2 h-4 w-4" />
             Form Designer
           </TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="field-mapper">Field Mapper</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
         </TabsList>
 
@@ -452,10 +450,18 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     Create PDF forms with visual field mapping to your database
                   </p>
                 </div>
-                <Button onClick={handleOpenFormDesigner}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create New Form
-                </Button>
+                <div className="flex gap-2">
+                  <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
+                    <Button variant="outline">
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload PDF
+                    </Button>
+                  </TemplateUploadDialog>
+                  <Button onClick={handleOpenFormDesigner}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create New Form
+                  </Button>
+                </div>
               </div>
 
               {syncfusionForms.length === 0 ? (
@@ -466,10 +472,18 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     <p className="text-muted-foreground text-center mb-4 max-w-md">
                       Create your first form using Syncfusion Form Designer. Upload a PDF and add form fields with visual database mapping.
                     </p>
-                    <Button onClick={handleOpenFormDesigner}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create First Form
-                    </Button>
+                    <div className="flex gap-2">
+                      <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
+                        <Button variant="outline">
+                          <Upload className="mr-2 h-4 w-4" />
+                          Upload PDF
+                        </Button>
+                      </TemplateUploadDialog>
+                      <Button onClick={handleOpenFormDesigner}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Create First Form
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ) : (
@@ -479,9 +493,20 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-base">{form.templateName}</CardTitle>
-                          <Badge variant={form.isActive ? "default" : "secondary"}>
-                            {form.isActive ? "Active" : "Inactive"}
-                          </Badge>
+                          <div className="flex gap-1">
+                            {form.syncfusionFormFields && form.syncfusionFormFields.length > 0 ? (
+                              <Badge variant="default" className="bg-green-600">
+                                Enhanced
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline">
+                                No Fields
+                              </Badge>
+                            )}
+                            <Badge variant={form.isActive ? "default" : "secondary"}>
+                              {form.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
                         </div>
                         <CardDescription>
                           {form.templateType} • v{form.version || 1}
@@ -494,8 +519,17 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                             size="sm"
                             onClick={() => handleEditForm(form)}
                           >
-                            <Edit className="mr-2 h-3 w-3" />
-                            Edit
+                            {form.syncfusionFormFields && form.syncfusionFormFields.length > 0 ? (
+                              <>
+                                <Edit className="mr-2 h-3 w-3" />
+                                Edit
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="mr-2 h-3 w-3" />
+                                Add Fields
+                              </>
+                            )}
                           </Button>
                           <Button
                             variant="outline"
@@ -529,243 +563,13 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
           )}
         </TabsContent>
 
-        <TabsContent value="templates" className="space-y-4">
-          {/* Visual Templates Section */}
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">Visual Templates</h3>
-            <Button variant="outline" onClick={handleOpenDesigner}>
-              <Edit className="mr-2 h-4 w-4" />
-              Design New Template
-            </Button>
-          </div>
-
-          {visualTemplates.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Edit className="h-16 w-16 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Visual Templates Yet</h3>
-                <p className="text-muted-foreground text-center mb-4">
-                  Design your first visual template using our drag-and-drop designer.
-                </p>
-                <Button onClick={handleOpenDesigner}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create First Visual Template
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {visualTemplates.map((template) => (
-                <Card key={template.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">{template.name}</CardTitle>
-                      <Badge variant={template.isActive ? "default" : "secondary"}>
-                        {template.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                    </div>
-                    <CardDescription>
-                      {template.type} • {template.elements.length} elements
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => editVisualTemplate(template)}
-                      >
-                        <Edit className="mr-2 h-3 w-3" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => previewVisualTemplate(template.id)}
-                      >
-                        <Eye className="mr-2 h-3 w-3" />
-                        Preview
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteVisualTemplate(template.id)}
-                      >
-                        <Trash2 className="mr-2 h-3 w-3" />
-                        Delete
-                      </Button>
-                    </div>
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      {template.pageSize} • {template.orientation}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* Legacy PDF Templates Section */}
-          <div className="flex justify-between items-center mt-8">
-            <h3 className="text-lg font-medium">Uploaded PDF Templates</h3>
-            <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                Upload PDF Template
-              </Button>
-            </TemplateUploadDialog>
-          </div>
-
-          {legacyTemplates.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Templates Yet</h3>
-                <p className="text-muted-foreground text-center mb-4">
-                  Upload your first PDF template to get started with custom invoice generation.
-                </p>
-                <TemplateUploadDialog onTemplateUploaded={handleTemplateUploaded}>
-                  <Button>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Upload First Template
-                  </Button>
-                </TemplateUploadDialog>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {legacyTemplates.map((template) => (
-              <Card key={template.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{template.templateName}</CardTitle>
-                    <Badge variant={template.isActive ? "default" : "secondary"}>
-                      {template.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                  <CardDescription>
-                    {template.templateType} • {template.fieldMappings?.length ?? 0} fields mapped
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => previewTemplate(template.id)}
-                    >
-                      <Eye className="mr-2 h-3 w-3" />
-                      Preview
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => deleteTemplate(template.id)}
-                    >
-                      <Trash2 className="mr-2 h-3 w-3" />
-                      Delete
-                    </Button>
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Created by {template.createdByName || 'Unknown'}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="field-mapper" className="space-y-4">
-          {fieldMapperOpen ? (
-            <PdfFieldMapper
-              templateId={editingMappedTemplate?.id}
-              onSave={handleMappedTemplateSaved}
-              onCancel={() => {
-                setFieldMapperOpen(false);
-                setEditingMappedTemplate(null);
-              }}
-            />
-          ) : (
-            <>
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-medium">Mapped PDF Templates</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Upload PDF forms and map their fields to your data
-                  </p>
-                </div>
-                <Button onClick={handleOpenFieldMapper}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Map New PDF
-                </Button>
-              </div>
-
-              {mappedTemplates.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Mapped Templates Yet</h3>
-                    <p className="text-muted-foreground text-center mb-4 max-w-md">
-                      Upload an existing PDF form and map its fields to your data sources.
-                      This is much simpler than designing from scratch!
-                    </p>
-                    <Button onClick={handleOpenFieldMapper}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create First Mapped Template
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {mappedTemplates.map((template) => (
-                    <Card key={template.id}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">{template.templateName}</CardTitle>
-                          <Badge variant={template.isActive ? "default" : "secondary"}>
-                            {template.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </div>
-                        <CardDescription>
-                          {template.templateType} • {template.fieldMappings.length} fields mapped
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => editMappedTemplate(template)}
-                          >
-                            <Edit className="mr-2 h-3 w-3" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => deleteMappedTemplate(template.id!)}
-                          >
-                            <Trash2 className="mr-2 h-3 w-3" />
-                            Delete
-                          </Button>
-                        </div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {template.tableMappings.length} tables • {template.pdfFields.length} total fields
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </TabsContent>
-
+        {/* Removed Templates and Field Mapper tabs */}
+        
         <TabsContent value="assignments" className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-medium">Template Assignments</h3>
             <TemplateAssignmentDialog
-              templates={legacyTemplates}
+              templates={syncfusionForms}
               visualTemplates={visualTemplates}
               onAssignmentCreated={handleAssignmentCreated}
             >
@@ -792,7 +596,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                     Assign templates to contracts, departments, or projects to control which templates are used for invoice generation.
                   </p>
                   <TemplateAssignmentDialog
-                    templates={legacyTemplates}
+                    templates={syncfusionForms}
                     visualTemplates={visualTemplates}
                     onAssignmentCreated={handleAssignmentCreated}
                   >
@@ -850,7 +654,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       {/* Edit Assignment Dialog */}
       {editingAssignment && (
         <TemplateAssignmentDialog
-          templates={legacyTemplates}
+          templates={syncfusionForms}
           visualTemplates={visualTemplates}
           onAssignmentCreated={() => {
             handleAssignmentCreated();

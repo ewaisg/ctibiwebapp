@@ -46,6 +46,18 @@ import { toast } from 'react-hot-toast';
 import type { ExtendedPdfTemplate, SyncfusionFormField, TemplateFieldMapping } from '@/types';
 import { FieldMappingPanel } from './FieldMappingPanel';
 
+// Import Syncfusion styles
+import '@syncfusion/ej2-base/styles/tailwind.css';
+import '@syncfusion/ej2-buttons/styles/tailwind.css';
+import '@syncfusion/ej2-popups/styles/tailwind.css';
+import '@syncfusion/ej2-navigations/styles/tailwind.css';
+import '@syncfusion/ej2-inputs/styles/tailwind.css';
+import '@syncfusion/ej2-lists/styles/tailwind.css';
+import '@syncfusion/ej2-dropdowns/styles/tailwind.css';
+import '@syncfusion/ej2-splitbuttons/styles/tailwind.css';
+import '@syncfusion/ej2-notifications/styles/tailwind.css';
+import '@syncfusion/ej2-react-pdfviewer/styles/tailwind.css';
+
 interface SyncfusionFormDesignerProps {
   templateId?: string;
   existingTemplate?: ExtendedPdfTemplate;
@@ -85,19 +97,20 @@ export function SyncfusionFormDesigner({
   );
 
   // UI state
-  const [currentTab, setCurrentTab] = useState<'designer' | 'mapping' | 'settings'>('designer');
+  const [currentTab, setCurrentTab] = useState<'mapping' | 'settings'>('mapping');
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
 
-  // Load existing PDF if editing
+  // Load PDF when base64 data changes
   useEffect(() => {
-    if (existingTemplate?.base64Data && viewerRef.current) {
-      const base64WithPrefix = existingTemplate.base64Data.startsWith('data:')
-        ? existingTemplate.base64Data
-        : `data:application/pdf;base64,${existingTemplate.base64Data}`;
+    if (pdfBase64 && viewerRef.current) {
+      const base64WithPrefix = pdfBase64.startsWith('data:')
+        ? pdfBase64
+        : `data:application/pdf;base64,${pdfBase64}`;
 
       viewerRef.current.load(base64WithPrefix, '');
     }
-  }, [existingTemplate]);
+  }, [pdfBase64]);
 
   // Handle PDF upload
   const handlePdfUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,15 +128,46 @@ export function SyncfusionFormDesigner({
       const base64 = result.split(',')[1]; // Remove data:application/pdf;base64, prefix
 
       setPdfBase64(base64);
-
-      // Load into viewer
-      if (viewerRef.current) {
-        viewerRef.current.load(result, '');
-      }
+      setPdfLoaded(false);
 
       toast.success('PDF uploaded successfully');
     };
     reader.readAsDataURL(file);
+  }, []);
+
+  // Extract form fields from PDF
+  const extractFormFields = useCallback(() => {
+    if (!viewerRef.current) return;
+
+    // Use a timeout to ensure the viewer has fully processed the document
+    setTimeout(() => {
+       if (!viewerRef.current) return;
+       const formFieldCollection = viewerRef.current.formFieldCollections;
+       const extracted: SyncfusionFormField[] = [];
+   
+       if (formFieldCollection) {
+          formFieldCollection.forEach((field: any) => {
+            extracted.push({
+              name: field.name,
+              type: field.type as SyncfusionFormField['type'],
+              bounds: {
+                X: field.bounds.X,
+                Y: field.bounds.Y,
+                Width: field.bounds.Width,
+                Height: field.bounds.Height,
+              },
+              pageNumber: field.pageNumber,
+              isRequired: field.isRequired,
+              isReadOnly: field.isReadOnly,
+              defaultValue: field.value,
+              maxLength: field.maxLength,
+              options: field.options || undefined,
+            });
+          });
+       }
+   
+       setFormFields(extracted);
+    }, 500);
   }, []);
 
   // Handle document load
@@ -133,40 +177,72 @@ export function SyncfusionFormDesigner({
     setPdfLoaded(true);
     setPageCount(viewerRef.current.pageCount);
 
-    // Extract existing form fields
-    extractFormFields();
+    // Attempt to restore fields if PDF is empty but template has fields
+    // This handles legacy templates where fields weren't burned into PDF
+    setTimeout(() => {
+       if (!viewerRef.current) return;
+       
+       const viewer = viewerRef.current;
+       const currentFields = viewer.formFieldCollections;
+       
+       // If viewer has no fields, but we have saved fields in metadata, restore them
+       if ((!currentFields || currentFields.length === 0) && existingTemplate?.syncfusionFormFields && existingTemplate.syncfusionFormFields.length > 0) {
+          console.log('Restoring fields from metadata...', existingTemplate.syncfusionFormFields.length);
+          
+          existingTemplate.syncfusionFormFields.forEach(field => {
+             try {
+                // @ts-ignore
+                if (viewer.formDesignerModule) {
+                   const props = {
+                      name: field.name,
+                      bounds: { 
+                         X: field.bounds.X || 0, 
+                         Y: field.bounds.Y || 0, 
+                         Width: field.bounds.Width || 100, 
+                         Height: field.bounds.Height || 20 
+                      },
+                      pageNumber: field.pageNumber > 0 ? field.pageNumber : 1,
+                      isRequired: field.isRequired,
+                      isReadOnly: field.isReadOnly,
+                      value: field.defaultValue,
+                      maxLength: field.maxLength,
+                   };
+                   
+                   // Map internal types to Syncfusion types
+                   let fieldType = field.type as string;
+                   if (fieldType === 'Checkbox') fieldType = 'CheckBox';
+                   if (fieldType === 'Dropdown') fieldType = 'DropDown';
+                   if (fieldType === 'Listbox') fieldType = 'ListBox';
+                   if (fieldType === 'Password') fieldType = 'PasswordField';
+                   if (fieldType === 'Signature') fieldType = 'SignatureField';
+
+                   // @ts-ignore
+                   viewer.formDesignerModule.addFormField(fieldType, props);
+                   console.log('Restored field:', field.name, fieldType);
+                } else {
+                   console.warn('FormDesignerModule not available');
+                }
+             } catch (e) {
+                console.error('Error restoring field:', field.name, e);
+             }
+          });
+       }
+       
+       // Extract fields after potential restoration
+       extractFormFields();
+    }, 1500);
 
     toast.success('PDF loaded successfully');
-  }, []);
+  }, [existingTemplate, extractFormFields]);
 
-  // Extract form fields from PDF
-  const extractFormFields = useCallback(() => {
-    if (!viewerRef.current) return;
-
-    const formFieldCollection = viewerRef.current.formFieldCollections;
-    const extracted: SyncfusionFormField[] = [];
-
-    formFieldCollection.forEach((field: any) => {
-      extracted.push({
-        name: field.name,
-        type: field.type as SyncfusionFormField['type'],
-        bounds: {
-          X: field.bounds.X,
-          Y: field.bounds.Y,
-          Width: field.bounds.Width,
-          Height: field.bounds.Height,
-        },
-        pageNumber: field.pageNumber,
-        isRequired: field.isRequired,
-        isReadOnly: field.isReadOnly,
-        defaultValue: field.value,
-        maxLength: field.maxLength,
-        options: field.options || undefined,
-      });
-    });
-
-    setFormFields(extracted);
-  }, []);
+  // Update viewer container on resize/layout change
+  useEffect(() => {
+     if (pdfLoaded && viewerRef.current) {
+        setTimeout(() => {
+           viewerRef.current?.updateViewerContainer();
+        }, 200);
+     }
+  }, [pdfLoaded, currentTab]);
 
   // Handle form field added
   const handleFormFieldAdd = useCallback(() => {
@@ -192,6 +268,63 @@ export function SyncfusionFormDesigner({
     }, 100);
   }, [extractFormFields]);
 
+  // Handle form field selection
+  const handleFormFieldSelect = useCallback((args: any) => {
+    if (args.field && args.field.name) {
+      console.log('Field selected:', args.field.name);
+      setSelectedFieldId(args.field.name);
+      // Switch to mapping tab if not already
+      setCurrentTab('mapping');
+    }
+  }, []);
+
+  // Handle manual restore
+  const handleManualRestore = () => {
+    if (!viewerRef.current || !existingTemplate?.syncfusionFormFields) return;
+    
+    const viewer = viewerRef.current;
+    console.log('Manually restoring fields...');
+    
+    existingTemplate.syncfusionFormFields.forEach(field => {
+       try {
+          // @ts-ignore
+          if (viewer.formDesignerModule) {
+             const props = {
+                name: field.name,
+                bounds: { 
+                   X: field.bounds.X || 0, 
+                   Y: field.bounds.Y || 0, 
+                   Width: field.bounds.Width || 100, 
+                   Height: field.bounds.Height || 20 
+                },
+                pageNumber: field.pageNumber > 0 ? field.pageNumber : 1,
+                isRequired: field.isRequired,
+                isReadOnly: field.isReadOnly,
+                value: field.defaultValue,
+                maxLength: field.maxLength,
+             };
+             
+             // Map internal types to Syncfusion types
+             let fieldType = field.type as string;
+             if (fieldType === 'Checkbox') fieldType = 'CheckBox';
+             if (fieldType === 'Dropdown') fieldType = 'DropDown';
+             if (fieldType === 'Listbox') fieldType = 'ListBox';
+             if (fieldType === 'Password') fieldType = 'PasswordField';
+             if (fieldType === 'Signature') fieldType = 'SignatureField';
+
+             // @ts-ignore
+             viewer.formDesignerModule.addFormField(fieldType, props);
+             console.log('Restored field:', field.name, fieldType);
+          }
+       } catch (e) {
+          console.error('Error restoring field:', field.name, e);
+       }
+    });
+    
+    setTimeout(extractFormFields, 500);
+    toast.success('Fields restored');
+  };
+
   // Handle save template
   const handleSave = useCallback(async () => {
     if (!templateName.trim()) {
@@ -207,11 +340,26 @@ export function SyncfusionFormDesigner({
     setIsSaving(true);
 
     try {
+      // Save the current PDF state including form fields
+      let savedPdfBase64 = pdfBase64;
+      if (viewerRef.current) {
+         // Force save to get the latest PDF with fields
+         const blob = await viewerRef.current.saveAsBlob();
+         savedPdfBase64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+               const base64 = (reader.result as string).split(',')[1];
+               resolve(base64);
+            };
+            reader.readAsDataURL(blob);
+         });
+      }
+
       const template: ExtendedPdfTemplate = {
         id: templateId || existingTemplate?.id || '',
         templateName,
         templateType,
-        base64Data: pdfBase64,
+        base64Data: savedPdfBase64,
         syncfusionFormFields: formFields,
         fieldMappings,
         dataSourceConfig: {
@@ -321,7 +469,7 @@ export function SyncfusionFormDesigner({
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - PDF Viewer */}
         <div className="flex-1 flex flex-col">
-          {!pdfLoaded ? (
+          {!pdfBase64 ? (
             <Card className="m-4">
               <CardHeader>
                 <CardTitle>Upload PDF Template</CardTitle>
@@ -358,7 +506,26 @@ export function SyncfusionFormDesigner({
                 formFieldAdd={handleFormFieldAdd}
                 formFieldPropertiesChange={handleFormFieldUpdate}
                 formFieldRemove={handleFormFieldRemove}
+                formFieldSelect={handleFormFieldSelect}
                 enableFormFieldsValidation={true}
+                enableFormDesigner={true}
+                enableFormFields={true}
+                toolbarSettings={{
+                  showTooltip: true,
+                  toolbarItems: [
+                    'OpenOption',
+                    'PageNavigationTool',
+                    'MagnificationTool',
+                    'PanTool',
+                    'SelectionTool',
+                    'SearchOption',
+                    'PrintOption',
+                    'DownloadOption',
+                    'UndoRedoTool',
+                    'AnnotationEditTool',
+                    'FormDesignerEditTool',
+                  ]
+                }}
                 style={{ height: '100%', width: '100%' }}
               >
                 <Inject
@@ -380,17 +547,20 @@ export function SyncfusionFormDesigner({
                 />
               </PdfViewerComponent>
 
-              {/* Stats overlay */}
-              <div className="absolute top-4 right-4 bg-background/90 backdrop-blur rounded-lg shadow-lg p-3 space-y-1">
-                <div className="text-xs font-medium">
-                  <FileText className="h-3 w-3 inline mr-1" />
-                  {pageCount} pages
-                </div>
-                <div className="text-xs font-medium">
-                  <Link2 className="h-3 w-3 inline mr-1" />
-                  {formFields.length} fields
-                </div>
-                <div className="text-xs font-medium">
+              {/* Stats overlay - Moved to header */}
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel - Configuration */}
+        {pdfLoaded && (
+          <div className="w-[450px] border-l bg-muted/20 overflow-y-auto overflow-x-hidden flex flex-col shrink-0">
+            <div className="bg-background border-b p-2 flex justify-between items-center text-xs text-muted-foreground">
+               <div className="flex gap-3">
+                  <span><FileText className="h-3 w-3 inline mr-1" />{pageCount} pgs</span>
+                  <span><Link2 className="h-3 w-3 inline mr-1" />{formFields.length} fields</span>
+               </div>
+               <div>
                   {fieldMappings.length === formFields.length ? (
                     <span className="text-green-600">✓ All mapped</span>
                   ) : (
@@ -399,16 +569,9 @@ export function SyncfusionFormDesigner({
                       {fieldMappings.length}/{formFields.length} mapped
                     </span>
                   )}
-                </div>
-              </div>
+               </div>
             </div>
-          )}
-        </div>
-
-        {/* Right Panel - Configuration */}
-        {pdfLoaded && (
-          <div className="w-96 border-l bg-muted/20 overflow-y-auto">
-            <Tabs value={currentTab} onValueChange={(v: any) => setCurrentTab(v)} className="h-full">
+            <Tabs value={currentTab} onValueChange={(v: any) => setCurrentTab(v)} className="flex-1 flex flex-col">
               <div className="border-b bg-background p-2">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="mapping" className="text-xs">
@@ -422,16 +585,29 @@ export function SyncfusionFormDesigner({
                 </TabsList>
               </div>
 
-              <TabsContent value="mapping" className="p-4 m-0">
+              <TabsContent value="mapping" className="p-4 m-0 flex-1 overflow-y-auto">
                 <FieldMappingPanel
                   formFields={formFields}
                   fieldMappings={fieldMappings}
                   primaryCollection={primaryCollection}
                   onMappingsChange={setFieldMappings}
+                  selectedFieldId={selectedFieldId}
+                  onFieldSelect={(fieldId) => {
+                    setSelectedFieldId(fieldId);
+                    // Select in viewer if possible
+                    if (viewerRef.current) {
+                       // @ts-ignore
+                       const field = viewerRef.current.formFieldCollections.find((f: any) => f.name === fieldId);
+                       if (field) {
+                          // @ts-ignore
+                          viewerRef.current.formDesignerModule.selectFormField(field);
+                       }
+                    }
+                  }}
                 />
               </TabsContent>
 
-              <TabsContent value="settings" className="p-4 m-0">
+              <TabsContent value="settings" className="p-4 m-0 flex-1 overflow-y-auto">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Template Settings</CardTitle>
@@ -453,6 +629,14 @@ export function SyncfusionFormDesigner({
                     <div>
                       <Label>Mapped Fields</Label>
                       <Input value={fieldMappings.length} disabled />
+                    </div>
+                    
+                    <div className="pt-4 border-t">
+                      <Label className="mb-2 block">Troubleshooting</Label>
+                      <Button variant="outline" size="sm" onClick={handleManualRestore} className="w-full">
+                        <FileText className="h-4 w-4 mr-2" />
+                        Force Restore Fields
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

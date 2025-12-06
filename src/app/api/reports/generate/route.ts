@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, StandardFonts } from 'pdf-lib';
 import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 import { adminDb } from '@/lib/firebase-admin';
 import { getVisualTemplate } from '@/lib/visual-template-firestore';
@@ -210,11 +211,113 @@ export async function POST(request: NextRequest) {
           },
         });
       } else {
-        // TODO: Handle PDF template generation
-        return NextResponse.json(
-          { error: 'PDF template generation not yet implemented for reports' },
-          { status: 501 }
-        );
+        // Handle PDF template generation
+        try {
+          // 1. Get the base64 PDF data
+          const base64Data = template.base64Data;
+          if (!base64Data) {
+            throw new Error('Template PDF data is missing');
+          }
+
+          // 2. Prepare data array (handle single object or array)
+          const dataArray = Array.isArray(data) ? data : [data];
+          
+          if (dataArray.length === 0) {
+             return NextResponse.json(
+              { error: 'No data found to generate report' },
+              { status: 404 }
+            );
+          }
+
+          // 3. Create a merged PDF to hold all filled forms
+          const mergedPdf = await PDFDocument.create();
+
+          // 4. Process each data item
+          for (const item of dataArray) {
+            // Load the template PDF
+            const pdfDoc = await PDFDocument.load(base64Data);
+            
+            // Embed standard font for field appearances
+            const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            
+            const form = pdfDoc.getForm();
+
+            // Fill fields based on mappings
+            if (template.fieldMappings && Array.isArray(template.fieldMappings)) {
+              for (const mapping of template.fieldMappings) {
+                try {
+                  const field = form.getField(mapping.fieldName);
+                  if (field) {
+                    // Get value from data item using sourceField (supports dot notation)
+                    const value = getNestedValue(item, mapping.sourceField);
+                    
+                    if (value !== undefined && value !== null) {
+                      // Convert to string and fill
+                      const stringValue = String(value);
+                      
+                      // Handle different field types
+                      if (field instanceof PDFTextField) {
+                        field.setText(stringValue);
+                        // Update appearance with font to ensure it renders correctly when flattened
+                        field.updateAppearances(helveticaFont);
+                      } else if (field instanceof PDFCheckBox) {
+                        if (stringValue.toLowerCase() === 'true' || stringValue === '1' || stringValue.toLowerCase() === 'yes') {
+                          field.check();
+                        } else {
+                          field.uncheck();
+                        }
+                        field.updateAppearances();
+                      } else if (field instanceof PDFDropdown) {
+                        // Check if option exists before selecting to avoid error
+                        const options = field.getOptions();
+                        if (options.includes(stringValue)) {
+                          field.select(stringValue);
+                          field.updateAppearances(helveticaFont);
+                        } else {
+                          console.warn(`Option "${stringValue}" not found in dropdown "${mapping.fieldName}"`);
+                        }
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.warn(`Failed to fill field ${mapping.fieldName}:`, err);
+                }
+              }
+            }
+
+            // Flatten the form to make it read-only and merge fields into content
+            // We wrap this in a try-catch because sometimes flattening fails with complex forms
+            try {
+              form.flatten();
+            } catch (flattenError) {
+              console.warn('Failed to flatten form, saving with filled fields instead:', flattenError);
+              // If flattening fails, we just leave the fields filled but editable/interactive
+            }
+
+            // Copy pages to merged PDF
+            const copiedPages = await mergedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+            copiedPages.forEach((page) => mergedPdf.addPage(page));
+          }
+
+          // 5. Save the merged PDF
+          const pdfBytes = await mergedPdf.save();
+
+          return new NextResponse(Buffer.from(pdfBytes), {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': preview
+                ? `inline; filename="${template.templateName || 'report'}-preview.pdf"`
+                : `attachment; filename="${template.templateName || 'report'}-${Date.now()}.pdf"`,
+            },
+          });
+
+        } catch (error) {
+          console.error('Error generating PDF from template:', error);
+          return NextResponse.json(
+            { error: 'Failed to generate PDF from template', details: error instanceof Error ? error.message : 'Unknown error' },
+            { status: 500 }
+          );
+        }
       }
     } catch (error) {
       console.error('Error generating report:', error);
@@ -227,6 +330,16 @@ export async function POST(request: NextRequest) {
 
   const limited = withRateLimit(handler);
   return limited(request);
+}
+
+/**
+ * Helper to get nested value from object
+ */
+function getNestedValue(obj: any, path: string): any {
+  if (!path) return undefined;
+  return path.split('.').reduce((prev, curr) => {
+    return prev ? prev[curr] : undefined;
+  }, obj);
 }
 
 /**

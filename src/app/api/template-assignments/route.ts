@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       return handleApiError(error);
     }
-  }, { requiredRole: 'Admin' });
+  });
 
   const limited = withRateLimit(authed);
   return limited(request);

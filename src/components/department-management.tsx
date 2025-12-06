@@ -29,6 +29,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { DepartmentForm } from "@/components/department-form";
 import type { Department, Division } from "@/types";
 import { toast } from "react-hot-toast";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
 
 interface DepartmentManagementProps {
   departments: Department[];
@@ -64,6 +79,40 @@ export function DepartmentManagement({
   const getDivisionName = (divisionId: string) => {
     const division = divisions.find(d => d.id === divisionId);
     return division?.divisionName || 'Unknown Division';
+  };
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const divisionTemplate = (props: any) => {
+    return getDivisionName(props.divisionId as string);
+  };
+
+  const statusTemplate = (props: any) => {
+    return getStatusBadge(props);
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingDepartment(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Department
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Department
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   return (
@@ -126,48 +175,16 @@ export function DepartmentManagement({
         </CardHeader>
         <CardContent>
           {departments.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Department Name</TableHead>
-                  <TableHead>Department Code</TableHead>
-                  <TableHead>Division</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {departments.map((department) => (
-                  <TableRow key={department.id}>
-                    <TableCell className="font-medium">{department.departmentName}</TableCell>
-                    <TableCell>{department.departmentCode}</TableCell>
-                    <TableCell>{getDivisionName(department.divisionId as string)}</TableCell>
-                    <TableCell>
-                      {getStatusBadge(department)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingDepartment(department)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Department
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Department
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={departments} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='departmentName' headerText='Department Name' width='200'></ColumnDirective>
+                <ColumnDirective field='departmentCode' headerText='Department Code' width='150'></ColumnDirective>
+                <ColumnDirective field='divisionId' headerText='Division' width='200' template={divisionTemplate}></ColumnDirective>
+                <ColumnDirective field='isInactive' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

@@ -32,6 +32,30 @@ import type { User, Company, UserRole } from "@/types";
 import { toast } from "react-hot-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader as AlertHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { deleteUserAndAccount } from "@/app/(authenticated)/admin/actions";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
+
+L10n.load({
+    'en-US': {
+        'pager': {
+            'currentPageInfo': '',
+            'totalItemsInfo': '{1} to {2} of {0}',
+        }
+    }
+});
 
 interface UserManagementProps {
   initialUsers: User[];
@@ -56,7 +80,7 @@ export function UserManagement({ initialUsers, companies }: UserManagementProps)
   // Simple shimmer component
   const Shimmer = () => (
     <div className="h-4 w-16 rounded bg-muted relative overflow-hidden">
-      <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.2s_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+      <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.2s_infinite] bg-linear-to-r from-transparent via-white/40 to-transparent" />
     </div>
   );
 
@@ -131,6 +155,52 @@ export function UserManagement({ initialUsers, companies }: UserManagementProps)
         setDeletingUid(null);
       }
     });
+  };
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const roleTemplate = (props: any) => {
+    return (
+      <Badge variant={getRoleBadgeVariant(props.role)}>
+        {props.role}
+      </Badge>
+    );
+  };
+
+  const companyTemplate = (props: any) => {
+    return getCompanyName(props.companyId as string);
+  };
+
+  const statusTemplate = (props: any) => {
+    return (
+      <Badge variant={props.isActive ? "default" : "secondary"}>
+        {props.isActive ? "Active" : "Inactive"}
+      </Badge>
+    );
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" disabled={deletingUid === props.uid}>
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingUser(props)} disabled={deletingUid === props.uid}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit User
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteUser(props.uid)} disabled={deletingUid === props.uid}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            {deletingUid === props.uid ? 'Deleting…' : 'Delete User'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   return (
@@ -216,61 +286,17 @@ export function UserManagement({ initialUsers, companies }: UserManagementProps)
               </TableBody>
             </Table>
           ) : users.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.uid} className={deletingUid === user.uid ? "opacity-70" : ""}>
-                    <TableCell className="font-medium flex items-center gap-2">
-                      {deletingUid === user.uid ? <Shimmer /> : null}
-                      {user.displayName}
-                    </TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={getRoleBadgeVariant(user.role)}>
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{getCompanyName(user.companyId as string)}</TableCell>
-                    <TableCell>
-                      <Badge variant={user.isActive ? "default" : "secondary"}>
-                        {user.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" disabled={deletingUid === user.uid}>
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingUser(user)} disabled={deletingUid === user.uid}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit User
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteUser(user.uid)} disabled={deletingUid === user.uid}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {deletingUid === user.uid ? 'Deleting…' : 'Delete User'}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {/* include shimmer keyframes */}
-                <ShimmerStyle />
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={users} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='displayName' headerText='Name' width='200'></ColumnDirective>
+                <ColumnDirective field='email' headerText='Email' width='200'></ColumnDirective>
+                <ColumnDirective field='role' headerText='Role' width='150' template={roleTemplate}></ColumnDirective>
+                <ColumnDirective field='companyId' headerText='Company' width='200' template={companyTemplate}></ColumnDirective>
+                <ColumnDirective field='isActive' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <h3 className="text-lg font-semibold mb-2">No users found</h3>

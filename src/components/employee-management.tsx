@@ -30,6 +30,21 @@ import { EmployeeForm } from "@/components/employee-form";
 import { EmployeeImport } from "@/components/employee-import";
 import type { Employee, Company, Department, Division } from "@/types";
 import { toast } from "react-hot-toast";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
 
 interface EmployeeManagementProps {
   employees: Employee[];
@@ -90,6 +105,48 @@ export function EmployeeManagement({
     if (!departmentCode) return 'N/A';
     const department = departments.find(d => d.departmentCode === departmentCode);
     return department?.departmentName || departmentCode;
+  };
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const companyTemplate = (props: any) => {
+    return getCompanyName(props.companyId as string);
+  };
+
+  const departmentTemplate = (props: any) => {
+    return getDepartmentName(props.departmentCode);
+  };
+
+  const typeTemplate = (props: any) => {
+    return getTypeBadge(props);
+  };
+
+  const statusTemplate = (props: any) => {
+    return getStatusBadge(props);
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingEmployee(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Employee
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Employee
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   return (
@@ -166,54 +223,18 @@ export function EmployeeManagement({
         </CardHeader>
         <CardContent>
           {employees.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Employee #</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {employees.map((employee) => (
-                  <TableRow key={employee.id}>
-                    <TableCell className="font-medium">{employee.formalName}</TableCell>
-                    <TableCell>{employee.employeeNumber}</TableCell>
-                    <TableCell>{getCompanyName(employee.companyId as string)}</TableCell>
-                    <TableCell>{getDepartmentName(employee.departmentCode)}</TableCell>
-                    <TableCell>
-                      {getTypeBadge(employee)}
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(employee)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingEmployee(employee)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Employee
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Employee
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={employees} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='formalName' headerText='Name' width='200'></ColumnDirective>
+                <ColumnDirective field='employeeNumber' headerText='Employee #' width='150'></ColumnDirective>
+                <ColumnDirective field='companyId' headerText='Company' width='200' template={companyTemplate}></ColumnDirective>
+                <ColumnDirective field='departmentCode' headerText='Department' width='200' template={departmentTemplate}></ColumnDirective>
+                <ColumnDirective field='isInternal' headerText='Type' width='150' template={typeTemplate}></ColumnDirective>
+                <ColumnDirective field='employmentStatus' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

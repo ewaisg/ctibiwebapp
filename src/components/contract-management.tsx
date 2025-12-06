@@ -30,6 +30,21 @@ import { ContractForm } from "@/components/contract-form";
 import { ContractImport } from "@/components/contract-import";
 import type { Contract, Company } from "@/types";
 import { toast } from "react-hot-toast";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
 
 interface ContractManagementProps {
   contracts: Contract[];
@@ -73,6 +88,48 @@ export function ContractManagement({ contracts: initialContracts, companies }: C
 
   const totalCapacity = contracts.reduce((sum, contract) => sum + (contract.contractCapacity || 0), 0);
   const totalMWBE = contracts.reduce((sum, contract) => sum + (contract.mwbeGoalPercent || 0), 0) / contracts.length;
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const currencyTemplate = (props: any) => {
+    return formatCurrency(props.contractCapacity);
+  };
+
+  const dateTemplate = (props: any) => {
+    return formatDate(
+      typeof props.contractEffectiveDate === 'object' && 'seconds' in props.contractEffectiveDate 
+        ? new Date(props.contractEffectiveDate.seconds * 1000).toISOString() 
+        : props.contractEffectiveDate as string
+    );
+  };
+
+  const mwbeTemplate = (props: any) => {
+    return <Badge variant="outline">{props.mwbeGoalPercent}%</Badge>;
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingContract(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Contract
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Contract
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
 
   return (
     <>
@@ -152,58 +209,18 @@ export function ContractManagement({ contracts: initialContracts, companies }: C
         </CardHeader>
         <CardContent>
           {contracts.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Contract Name</TableHead>
-                  <TableHead>Number</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Capacity</TableHead>
-                  <TableHead>Effective Date</TableHead>
-                  <TableHead>MWBE Goal</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {contracts.map((contract) => (
-                  <TableRow key={contract.id}>
-                    <TableCell className="font-medium">{contract.contractName}</TableCell>
-                    <TableCell>{contract.contractNumber}</TableCell>
-                    <TableCell>{contract.clientName}</TableCell>
-                    <TableCell>{formatCurrency(contract.contractCapacity)}</TableCell>
-                    <TableCell>
-                      {formatDate(
-                        typeof contract.contractEffectiveDate === 'object' && 'seconds' in contract.contractEffectiveDate 
-                          ? new Date(contract.contractEffectiveDate.seconds * 1000).toISOString() 
-                          : contract.contractEffectiveDate as string
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{contract.mwbeGoalPercent}%</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingContract(contract)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Contract
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Contract
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={contracts} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='contractName' headerText='Contract Name' width='200'></ColumnDirective>
+                <ColumnDirective field='contractNumber' headerText='Number' width='150'></ColumnDirective>
+                <ColumnDirective field='clientName' headerText='Client' width='200'></ColumnDirective>
+                <ColumnDirective field='contractCapacity' headerText='Capacity' width='150' template={currencyTemplate} textAlign='Right'></ColumnDirective>
+                <ColumnDirective field='contractEffectiveDate' headerText='Effective Date' width='150' template={dateTemplate}></ColumnDirective>
+                <ColumnDirective field='mwbeGoalPercent' headerText='MWBE Goal' width='120' template={mwbeTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

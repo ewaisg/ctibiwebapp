@@ -30,6 +30,21 @@ import { CompanyForm } from "@/components/company-form";
 import { CompanyImport } from "@/components/company-import";
 import type { Company, Department } from "@/types";
 import { toast } from "react-hot-toast";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
 
 interface CompanyManagementProps {
   companies: Company[];
@@ -69,6 +84,44 @@ export function CompanyManagement({ companies: initialCompanies, departments }: 
   const getDiversityBadge = (certification?: string) => {
     if (!certification || certification === 'None') return null;
     return <Badge variant="secondary">{certification}</Badge>;
+  };
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const statusTemplate = (props: any) => {
+    return getStatusBadge(props);
+  };
+
+  const diversityTemplate = (props: any) => {
+    return getDiversityBadge(props.diversityCertification);
+  };
+
+  const typeTemplate = (props: any) => {
+    return props.isSubconsultant ? "Subconsultant" : "Prime/Internal";
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingCompany(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Company
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Company
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   return (
@@ -145,54 +198,17 @@ export function CompanyManagement({ companies: initialCompanies, departments }: 
         </CardHeader>
         <CardContent>
           {companies.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company Name</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Certification</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {companies.map((company) => (
-                  <TableRow key={company.id}>
-                    <TableCell className="font-medium">{company.companyName}</TableCell>
-                    <TableCell>{company.companyCode}</TableCell>
-                    <TableCell>
-                      {company.isSubconsultant ? "Subconsultant" : "Prime/Internal"}
-                    </TableCell>
-                    <TableCell>
-                      {getDiversityBadge(company.diversityCertification)}
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(company)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingCompany(company)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Company
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Company
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={companies} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='companyName' headerText='Company Name' width='200'></ColumnDirective>
+                <ColumnDirective field='companyCode' headerText='Code' width='100'></ColumnDirective>
+                <ColumnDirective field='isSubconsultant' headerText='Type' width='150' template={typeTemplate}></ColumnDirective>
+                <ColumnDirective field='diversityCertification' headerText='Certification' width='150' template={diversityTemplate}></ColumnDirective>
+                <ColumnDirective field='isInactive' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

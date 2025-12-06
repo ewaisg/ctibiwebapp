@@ -29,6 +29,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { DivisionForm } from "@/components/division-form";
 import type { Division } from "@/types";
 import { toast } from "react-hot-toast";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems 
+} from '@syncfusion/ej2-react-grids';
 
 interface DivisionManagementProps {
   divisions: Division[];
@@ -55,6 +70,36 @@ export function DivisionManagement({ divisions: initialDivisions }: DivisionMana
     return division.isInactive ? 
       <Badge variant="secondary">Inactive</Badge> : 
       <Badge variant="default">Active</Badge>;
+  };
+
+  const filterSettings: FilterSettingsModel = { type: 'Excel' };
+  const toolbar: ToolbarItems[] = ['Search'];
+  const editSettings: EditSettingsModel = { allowEditing: false, allowAdding: false, allowDeleting: false };
+
+  const statusTemplate = (props: any) => {
+    return getStatusBadge(props);
+  };
+
+  const actionsTemplate = (props: any) => {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setEditingDivision(props)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Edit Division
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Division
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   return (
@@ -117,46 +162,15 @@ export function DivisionManagement({ divisions: initialDivisions }: DivisionMana
         </CardHeader>
         <CardContent>
           {divisions.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Division Name</TableHead>
-                  <TableHead>Division Code</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {divisions.map((division) => (
-                  <TableRow key={division.id}>
-                    <TableCell className="font-medium">{division.divisionName}</TableCell>
-                    <TableCell>{division.divisionCode}</TableCell>
-                    <TableCell>
-                      {getStatusBadge(division)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingDivision(division)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Division
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Division
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <GridComponent dataSource={divisions} locale='en-US' allowPaging={true} allowSorting={true} allowFiltering={true} filterSettings={filterSettings} toolbar={toolbar} editSettings={editSettings} height={365} pageSettings={{ pageCount: 4, pageSizes: true }}>
+              <ColumnsDirective>
+                <ColumnDirective field='divisionName' headerText='Division Name' width='200'></ColumnDirective>
+                <ColumnDirective field='divisionCode' headerText='Division Code' width='150'></ColumnDirective>
+                <ColumnDirective field='isInactive' headerText='Status' width='120' template={statusTemplate}></ColumnDirective>
+                <ColumnDirective headerText='Actions' width='100' template={actionsTemplate} textAlign='Center'></ColumnDirective>
+              </ColumnsDirective>
+              <Inject services={[Page, Sort, Toolbar, Filter, GridEdit]} />
+            </GridComponent>
           ) : (
             <div className="text-center py-8">
               <Building className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

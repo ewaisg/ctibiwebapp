@@ -36,10 +36,18 @@ interface CompilationResult {
   error?: string;
 }
 
+export type ProgressCallback = (progress: {
+  status: string;
+  processed: number;
+  total: number;
+  currentItem?: string;
+}) => void;
+
 export async function generateDepartmentalCompilation(
   departmentId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  onProgress?: ProgressCallback
 ): Promise<CompilationResult> {
   try {
     // Validate inputs
@@ -91,6 +99,10 @@ export async function generateDepartmentalCompilation(
     const companies = companiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Company[];
     const services = servicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Service[];
 
+    if (onProgress) {
+      onProgress({ status: 'processing', processed: 0, total: 0 });
+    }
+
     // Filter invoices by date range and department projects
     const projectIds = new Set(projects.map(p => p.id));
     const start = new Date(startDate + 'T00:00:00.000Z');
@@ -112,10 +124,25 @@ export async function generateDepartmentalCompilation(
 
     console.log('[Departmental Compilation] Found relevant invoices:', sanitizeForLog(relevantInvoices.length));
 
+    if (onProgress) {
+      onProgress({ status: 'processing', processed: 0, total: relevantInvoices.length });
+    }
+
     // Group invoices by project and submission date
     const submissionsByProject = new Map<string, Map<string, InvoiceSubmission[]>>();
 
+    let processedCount = 0;
     for (const invoice of relevantInvoices) {
+      processedCount++;
+      if (onProgress) {
+        onProgress({ 
+          status: 'processing', 
+          processed: processedCount, 
+          total: relevantInvoices.length,
+          currentItem: invoice.invoiceNumber 
+        });
+      }
+
       const projectId = extractId(invoice.projectId);
       if (!projectId) continue; // Skip if no valid project ID
       
@@ -196,6 +223,9 @@ export async function generateDepartmentalCompilation(
     }
 
     // Create ZIP file
+    if (onProgress) {
+      onProgress({ status: 'compressing', processed: relevantInvoices.length, total: relevantInvoices.length });
+    }
     const zip = new JSZip();
     
     // Add project folders with submissions

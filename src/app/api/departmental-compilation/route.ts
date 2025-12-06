@@ -3,13 +3,32 @@ import { generateDepartmentalCompilation } from '@/lib/departmental-compilation'
 import { handleApiError, validateRequestBody, ValidationError } from '@/lib/api-error-handler';
 import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
+// Store progress in memory (in production, use Redis or database)
+const compilationProgress = new Map<string, any>();
+
+export async function GET(request: NextRequest) {
+  const handler = await withAuth(async (req) => {
+    const { searchParams } = new URL(req.url);
+    const compilationId = searchParams.get('compilationId');
+
+    if (!compilationId) {
+      return NextResponse.json({ error: 'Missing compilationId' }, { status: 400 });
+    }
+
+    const progress = compilationProgress.get(compilationId);
+    return NextResponse.json(progress || { status: 'idle' });
+  });
+
+  return handler(request);
+}
+
 export async function POST(request: NextRequest) {
   const handler = await withAuth(async (req) => {
   try {
     const body = await req.json();
     validateRequestBody(body, ['departmentId', 'startDate', 'endDate']);
     
-    const { departmentId, startDate, endDate } = body;
+    const { departmentId, startDate, endDate, compilationId } = body;
 
     // Validate date format
     const start = new Date(startDate);
@@ -31,7 +50,23 @@ export async function POST(request: NextRequest) {
 
     console.log('[API] Starting departmental compilation for department');
 
-    const result = await generateDepartmentalCompilation(departmentId, startDate, endDate);
+    if (compilationId) {
+      compilationProgress.set(compilationId, { status: 'starting', processed: 0, total: 0 });
+    }
+
+    const onProgress = (progress: any) => {
+      if (compilationId) {
+        compilationProgress.set(compilationId, progress);
+      }
+    };
+
+    const result = await generateDepartmentalCompilation(departmentId, startDate, endDate, onProgress);
+
+    if (compilationId) {
+      compilationProgress.set(compilationId, { status: 'completed', processed: 100, total: 100 });
+      // Clean up after 5 minutes
+      setTimeout(() => compilationProgress.delete(compilationId), 5 * 60 * 1000);
+    }
 
     if (!result.success) {
       throw new Error(result.error || 'Compilation failed');

@@ -1199,7 +1199,6 @@ export function InvoicesClientPage({
           {user?.role !== 'Subconsultant' && (
             <DepartmentalCompilationDialog
               departments={departments}
-              onCompile={handleDepartmentalCompilation}
             />
           )}
           <NewInvoiceDialog 

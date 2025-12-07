@@ -9,11 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Download, Eye, Filter, Calendar, Loader2, XCircle, Building2, FolderKanban, FileCheck, Sparkles, ArrowLeft } from "lucide-react";
-import type { VisualTemplate } from "@/types/template-designer";
-import type { PdfTemplate, Department, Project, Contract, TemplateAssignment } from "@/types";
+import { FileText, Download, Eye, Filter, Calendar, Loader2, XCircle, Building2, FolderKanban, FileCheck, ArrowLeft } from "lucide-react";
+import type { PdfTemplate, Department, Project, Contract } from "@/types";
 import { ReportTemplatesGallery } from "@/components/reports/ReportTemplatesGallery";
 import type { ReportTemplate } from "@/lib/report-templates";
+import toast from "react-hot-toast";
 
 interface ReportFilters {
   dateFrom?: string;
@@ -32,27 +32,16 @@ interface ReportsClientPageProps {
 
 export function ReportsClientPage({ departments, projects, contracts }: ReportsClientPageProps) {
   const { secureRequest, isLoading: authLoading } = useAuth() as any;
-  const [visualTemplates, setVisualTemplates] = useState<VisualTemplate[]>([]);
   const [pdfTemplates, setPdfTemplates] = useState<PdfTemplate[]>([]);
-  const [assignments, setAssignments] = useState<TemplateAssignment[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<VisualTemplate | PdfTemplate | null>(null);
-  const [templateSource, setTemplateSource] = useState<"pdf" | "visual">("visual");
-  const [dataSource, setDataSource] = useState<string>("");
+  
+  // Selection State
+  const [selectedPrebuiltTemplate, setSelectedPrebuiltTemplate] = useState<ReportTemplate | null>(null);
+  const [selectedCustomTemplate, setSelectedCustomTemplate] = useState<PdfTemplate | null>(null);
+  
   const [filters, setFilters] = useState<ReportFilters>({});
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [selectedReportTemplate, setSelectedReportTemplate] = useState<ReportTemplate | null>(null);
-  const [viewMode, setViewMode] = useState<'templates' | 'custom' | 'configure'>('templates');
-
-  // Available data sources
-  const dataSources = [
-    { value: "invoices", label: "Invoices" },
-    { value: "timesheets", label: "Timesheets" },
-    { value: "projects", label: "Projects" },
-    { value: "departments", label: "Departments" },
-    { value: "employees", label: "Employees" },
-    { value: "contracts", label: "Contracts" },
-  ];
+  const [viewMode, setViewMode] = useState<'gallery' | 'configure'>('gallery');
 
   // Filter projects by department if department is selected
   const filteredProjects = useMemo(() => {
@@ -86,64 +75,64 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
   const loadTemplates = async () => {
     setLoading(true);
     try {
-      const [visualRes, pdfRes, assignmentsRes] = await Promise.all([
-        secureRequest('/api/visual-templates'),
-        secureRequest('/api/pdf-templates'),
-        secureRequest('/api/template-assignments')
-      ]);
-
-      if (visualRes.ok) {
-        const data = await visualRes.json();
-        setVisualTemplates(data.items || []);
-      }
-
+      const pdfRes = await secureRequest('/api/pdf-templates');
       if (pdfRes.ok) {
         const data = await pdfRes.json();
         setPdfTemplates(data.items || []);
       }
-
-      if (assignmentsRes.ok) {
-        const data = await assignmentsRes.json();
-        // API returns array directly, or object with items if paginated (future proofing)
-        setAssignments(Array.isArray(data) ? data : (data.items || []));
-      }
     } catch (error) {
       console.error('Error loading templates:', error);
+      toast.error("Failed to load templates");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTemplateSelect = (templateId: string) => {
-    const template = templateSource === 'visual'
-      ? visualTemplates.find(t => t.id === templateId)
-      : pdfTemplates.find(t => t.id === templateId);
+  const handleSelectPrebuilt = (template: ReportTemplate) => {
+    setSelectedPrebuiltTemplate(template);
+    setSelectedCustomTemplate(null);
+    setFilters({});
+    setViewMode('configure');
+  };
 
-    setSelectedTemplate(template || null);
+  const handleSelectCustom = (template: PdfTemplate) => {
+    setSelectedCustomTemplate(template);
+    setSelectedPrebuiltTemplate(null);
+    setFilters({});
+    setViewMode('configure');
   };
 
   const handleGenerateReport = async (preview: boolean = false) => {
-    if (!selectedTemplate || !dataSource) {
-      alert('Please select a template and data source');
+    if (!selectedPrebuiltTemplate && !selectedCustomTemplate) {
+      toast.error('Please select a template');
       return;
+    }
+
+    // Validation for Date Range reports
+    if (selectedCustomTemplate?.reportType === 'DateRange') {
+      if (!filters.dateFrom || !filters.dateTo) {
+        toast.error('Please select a date range');
+        return;
+      }
     }
 
     setGenerating(true);
 
     try {
+      const payload = {
+        templateId: selectedCustomTemplate?.id,
+        reportTemplateId: selectedPrebuiltTemplate?.id,
+        templateSource: selectedCustomTemplate ? 'pdf' : 'prebuilt',
+        filters,
+        preview,
+      };
+
       const response = await secureRequest('/api/reports/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          templateId: selectedTemplate.id,
-          templateSource,
-          dataSource,
-          filters,
-          preview,
-          reportTemplateId: selectedReportTemplate?.id,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -155,70 +144,24 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
         } else {
           const a = document.createElement('a');
           a.href = url;
-          a.download = `report-${selectedTemplate.id}-${Date.now()}.pdf`;
+          a.download = `report-${selectedCustomTemplate?.templateName || selectedPrebuiltTemplate?.name}-${Date.now()}.pdf`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           window.URL.revokeObjectURL(url);
         }
+        toast.success("Report generated successfully");
       } else {
         const error = await response.json();
-        alert(`Failed to generate report: ${error.error}`);
+        toast.error(`Failed to generate report: ${error.error}`);
       }
     } catch (error) {
       console.error('Error generating report:', error);
-      alert('Failed to generate report. Please try again.');
+      toast.error('Failed to generate report. Please try again.');
     } finally {
       setGenerating(false);
     }
   };
-
-  const availableTemplates = useMemo(() => {
-    const sourceTemplates = templateSource === 'visual' ? visualTemplates : pdfTemplates;
-    
-    return sourceTemplates.filter(template => {
-      // Find all assignments for this template
-      const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
-      
-      // If no active assignments, don't show (unless we want to show unassigned ones? Assuming no)
-      if (templateAssignments.length === 0) return false;
-      
-      // Check if any assignment matches current filters
-      return templateAssignments.some(assignment => {
-        // Global always visible
-        if (assignment.assignmentType === 'Global') return true;
-        
-        // Contract Logic
-        if (assignment.assignmentType === 'Contract') {
-          // If "All Contracts", visible if no contract selected OR any contract selected
-          if (assignment.assignmentId === 'all') return true;
-          // If Specific Contract, visible if no filter OR matches filter
-          return !filters.contractId || filters.contractId === assignment.assignmentId;
-        }
-        
-        // Department Logic
-        if (assignment.assignmentType === 'Department') {
-          if (assignment.assignmentId === 'all') return true;
-          return !filters.departmentId || filters.departmentId === assignment.assignmentId;
-        }
-        
-        // Project Logic
-        if (assignment.assignmentType === 'Project') {
-          if (assignment.assignmentId === 'all') return true;
-          return !filters.projectId || filters.projectId === assignment.assignmentId;
-        }
-        
-        return false;
-      });
-    });
-  }, [templateSource, visualTemplates, pdfTemplates, assignments, filters]);
-
-  const visiblePdfTemplates = useMemo(() => {
-    return pdfTemplates.filter(template => {
-      const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
-      return templateAssignments.length > 0;
-    });
-  }, [pdfTemplates, assignments]);
 
   if (loading) {
     return (
@@ -228,82 +171,10 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     );
   }
 
-  // Handle pre-built template selection
-  const handleSelectReportTemplate = (template: ReportTemplate) => {
-    setSelectedReportTemplate(template);
-    setViewMode('configure');
-    setTemplateSource('visual');
-
-    // Auto-select a compatible visual template
-    const compatibleTemplate = visualTemplates.find(t => t.type === 'report') || visualTemplates[0];
-    if (compatibleTemplate) {
-      setSelectedTemplate(compatibleTemplate);
-    }
-
-    // Auto-set data source based on template requirements
-    if (template.requiredDataSources.length > 0) {
-      setDataSource(template.requiredDataSources[0]);
-    }
-
-    // Clear filters and set required ones
-    setFilters({});
-  };
-
-  const handleSelectCustomTemplate = (template: PdfTemplate) => {
-    setSelectedTemplate(template);
-    setTemplateSource('pdf');
-    setViewMode('configure');
-    
-    // Auto-detect data source from mappings
-    if (template.fieldMappings && template.fieldMappings.length > 0) {
-      // Look for known data sources in mapping source fields (e.g. "invoices.invoiceNumber")
-      const firstMapping = template.fieldMappings[0];
-      const sourceField = firstMapping.sourceField || "";
-      const parts = sourceField.split('.');
-      if (parts.length > 1) {
-        // Simple heuristic: if mapping starts with "invoices.", set source to "invoices"
-        // This assumes mappings are like "collection.field" or just "field"
-        // If your mappings are just "invoiceNumber", we might need to look at templateType
-        // But let's try to infer from templateType first as it's more reliable if set correctly
-      }
-    }
-
-    // Infer data source from template type
-    let inferredSource = "";
-    if (template.templateType === 'Invoice') inferredSource = "invoices";
-    else if (template.templateType === 'Report') inferredSource = "projects"; // Default for reports?
-    
-    if (inferredSource) {
-      setDataSource(inferredSource);
-    } else {
-      setDataSource(""); 
-    }
-
-    // Auto-fill filters based on assignments
-    const templateAssignments = assignments.filter(a => a.templateId === template.id && a.isActive);
-    const newFilters: ReportFilters = {};
-    
-    // If assigned to a specific project/contract/dept, pre-fill that filter
-    // We prioritize specific assignments over global ones
-    const projectAssignment = templateAssignments.find(a => a.assignmentType === 'Project' && a.assignmentId !== 'all');
-    if (projectAssignment) {
-      newFilters.projectId = projectAssignment.assignmentId as string;
-    }
-
-    const contractAssignment = templateAssignments.find(a => a.assignmentType === 'Contract' && a.assignmentId !== 'all');
-    if (contractAssignment) {
-      newFilters.contractId = contractAssignment.assignmentId as string;
-    }
-
-    const deptAssignment = templateAssignments.find(a => a.assignmentType === 'Department' && a.assignmentId !== 'all');
-    if (deptAssignment) {
-      newFilters.departmentId = deptAssignment.assignmentId as string;
-    }
-
-    setFilters(newFilters);
-  };
-
-
+  const activeTemplateName = selectedCustomTemplate?.templateName || selectedPrebuiltTemplate?.name;
+  const activeTemplateDescription = selectedPrebuiltTemplate?.description || "Custom PDF Report";
+  const isDateRangeRequired = selectedCustomTemplate?.reportType === 'DateRange' || 
+                              selectedPrebuiltTemplate?.requiredFilters?.includes('dateRange');
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -316,13 +187,13 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
         </div>
       </div>
 
-      {viewMode === 'templates' ? (
+      {viewMode === 'gallery' ? (
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
             <ReportTemplatesGallery 
-              onSelectTemplate={handleSelectReportTemplate} 
-              customTemplates={visiblePdfTemplates}
-              onSelectCustomTemplate={handleSelectCustomTemplate}
+              onSelectTemplate={handleSelectPrebuilt} 
+              customTemplates={pdfTemplates}
+              onSelectCustomTemplate={handleSelectCustom}
             />
           </div>
           <div>
@@ -353,166 +224,57 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left Column - Template Selection */}
+          {/* Left Column - Configuration */}
           <div className="lg:col-span-2 space-y-6">
-          {/* Template Source Selection */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="h-5 w-5" />
-                    {selectedReportTemplate ? `Configure ${selectedReportTemplate.name}` : "Select Template"}
-                  </CardTitle>
-                  <CardDescription>
-                    {selectedReportTemplate 
-                      ? selectedReportTemplate.description 
-                      : "Choose a template to generate your report"}
-                  </CardDescription>
-                </div>
-                {viewMode === 'configure' && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Configure Report
+                    </CardTitle>
+                    <CardDescription>
+                      {activeTemplateName}
+                    </CardDescription>
+                  </div>
                   <Button 
                     variant="ghost" 
                     size="sm" 
                     onClick={() => {
-                      setViewMode('templates');
-                      setSelectedReportTemplate(null);
+                      setViewMode('gallery');
+                      setSelectedPrebuiltTemplate(null);
+                      setSelectedCustomTemplate(null);
                     }}
                   >
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back to Gallery
                   </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {!selectedReportTemplate && (
-                <div className="space-y-2">
-                  <Label>Template Source</Label>
-                  <Select value={templateSource} onValueChange={(value: "pdf" | "visual") => {
-                    setTemplateSource(value);
-                    setSelectedTemplate(null);
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select source" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="visual">Visual Templates (Designer)</SelectItem>
-                      <SelectItem value="pdf">PDF Templates</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>{selectedReportTemplate ? "Select Layout Template" : "Template"}</Label>
-                <Select
-                  value={selectedTemplate?.id || ""}
-                  onValueChange={handleTemplateSelect}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTemplates.length === 0 ? (
-                      <div className="text-sm text-muted-foreground p-2">
-                        No templates available
-                      </div>
-                    ) : (
-                      availableTemplates.map((template) => (
-                        <SelectItem key={template.id} value={template.id}>
-                          {(template as any).name || (template as any).templateName || 'Unnamed Template'}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                {selectedReportTemplate && (
-                   <p className="text-xs text-muted-foreground">
-                     Select a visual layout to render this report.
-                   </p>
-                )}
-              </div>
-
-              {selectedTemplate && (
-                <Card className="bg-muted/50">
-                  <CardContent className="pt-6">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Template Type</span>
-                        <Badge variant="outline">
-                          {(selectedTemplate as any).type || (selectedTemplate as any).templateType}
-                        </Badge>
-                      </div>
-                      {templateSource === 'visual' && (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Elements</span>
-                            <span className="text-sm text-muted-foreground">
-                              {(selectedTemplate as VisualTemplate).elements?.length || 0}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Page Size</span>
-                            <span className="text-sm text-muted-foreground">
-                              {(selectedTemplate as VisualTemplate).pageSize} / {(selectedTemplate as VisualTemplate).orientation}
-                            </span>
-                          </div>
-                        </>
-                      )}
+              </CardHeader>
+              <CardContent className="space-y-6">
+                
+                <div className="bg-muted/50 p-4 rounded-lg">
+                  <p className="text-sm text-muted-foreground">{activeTemplateDescription}</p>
+                  {selectedCustomTemplate && (
+                    <div className="mt-2 flex gap-2">
+                      <Badge variant="outline">{selectedCustomTemplate.category || 'Uncategorized'}</Badge>
+                      <Badge variant="outline">{selectedCustomTemplate.reportType || 'General'}</Badge>
                     </div>
-                  </CardContent>
-                </Card>
-              )}
-            </CardContent>
-          </Card>
+                  )}
+                </div>
 
-          {/* Data Source Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Data Source & Filters
-              </CardTitle>
-              <CardDescription>
-                Choose where to get the data and apply filters
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Data Source</Label>
-                <Select 
-                  value={dataSource} 
-                  onValueChange={setDataSource}
-                  disabled={!!selectedReportTemplate && selectedReportTemplate.requiredDataSources.length > 0}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select data source" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dataSources.map((source) => (
-                      <SelectItem key={source.value} value={source.value}>
-                        {source.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedReportTemplate && selectedReportTemplate.requiredDataSources.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Data source is determined by the selected report type.
-                  </p>
-                )}
-              </div>
+                <Separator />
 
-              {dataSource && (
-                <>
-                  <Separator />
-
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium">Report Parameters</h3>
+                  
+                  {/* Date Range Selection - Show if required or optional */}
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="dateFrom" className="flex items-center gap-2">
                         <Calendar className="h-3 w-3" />
-                        Date From
+                        Date From {isDateRangeRequired && <span className="text-red-500">*</span>}
                       </Label>
                       <Input
                         id="dateFrom"
@@ -525,7 +287,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
                     <div className="space-y-2">
                       <Label htmlFor="dateTo" className="flex items-center gap-2">
                         <Calendar className="h-3 w-3" />
-                        Date To
+                        Date To {isDateRangeRequired && <span className="text-red-500">*</span>}
                       </Label>
                       <Input
                         id="dateTo"
@@ -536,147 +298,85 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
                     </div>
                   </div>
 
-                  <Separator />
-
-                  {/* Department Filter */}
-                  <div className="space-y-2">
-                    <Label htmlFor="department" className="flex items-center gap-2">
-                      <Building2 className="h-3 w-3" />
-                      Department
-                    </Label>
-                    <Select
-                      value={filters.departmentId || "ALL"}
-                      onValueChange={(value) => setFilters({ ...filters, departmentId: value === "ALL" ? undefined : value })}
-                    >
-                      <SelectTrigger id="department">
-                        <SelectValue placeholder="All Departments" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Departments</SelectItem>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.departmentName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Project Filter */}
-                  <div className="space-y-2">
-                    <Label htmlFor="project" className="flex items-center gap-2">
-                      <FolderKanban className="h-3 w-3" />
-                      Project
-                    </Label>
-                    <Select
-                      value={filters.projectId || "ALL"}
-                      onValueChange={(value) => setFilters({ ...filters, projectId: value === "ALL" ? undefined : value })}
-                    >
-                      <SelectTrigger id="project">
-                        <SelectValue placeholder="All Projects" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Projects</SelectItem>
-                        {filteredProjects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            {project.projectName} ({project.poNumber})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Contract Filter */}
-                  <div className="space-y-2">
-                    <Label htmlFor="contract" className="flex items-center gap-2">
-                      <FileCheck className="h-3 w-3" />
-                      Contract
-                    </Label>
-                    <Select
-                      value={filters.contractId || "ALL"}
-                      onValueChange={(value) => setFilters({ ...filters, contractId: value === "ALL" ? undefined : value })}
-                    >
-                      <SelectTrigger id="contract">
-                        <SelectValue placeholder="All Contracts" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Contracts</SelectItem>
-                        {contracts.map((contract) => (
-                          <SelectItem key={contract.id} value={contract.id}>
-                            {contract.contractNumber} - {contract.contractName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Status Filter (context-aware based on data source) */}
-                  {(dataSource === 'invoices' || dataSource === 'projects') && (
+                  {/* Additional Filters based on context */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {/* Department Filter */}
                     <div className="space-y-2">
-                      <Label htmlFor="status">Status</Label>
+                      <Label htmlFor="department" className="flex items-center gap-2">
+                        <Building2 className="h-3 w-3" />
+                        Department
+                      </Label>
                       <Select
-                        value={filters.status || "ALL"}
-                        onValueChange={(value) => setFilters({ ...filters, status: value === "ALL" ? undefined : value })}
+                        value={filters.departmentId || "ALL"}
+                        onValueChange={(value) => setFilters({ ...filters, departmentId: value === "ALL" ? undefined : value })}
                       >
-                        <SelectTrigger id="status">
-                          <SelectValue placeholder="All Statuses" />
+                        <SelectTrigger id="department">
+                          <SelectValue placeholder="All Departments" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ALL">All Statuses</SelectItem>
-                          {dataSource === 'invoices' && (
-                            <>
-                              <SelectItem value="draft">Draft</SelectItem>
-                              <SelectItem value="submitted">Submitted</SelectItem>
-                              <SelectItem value="approved">Approved</SelectItem>
-                              <SelectItem value="rejected">Rejected</SelectItem>
-                            </>
-                          )}
-                          {dataSource === 'projects' && (
-                            <>
-                              <SelectItem value="active">Active</SelectItem>
-                              <SelectItem value="completed">Completed</SelectItem>
-                              <SelectItem value="on-hold">On Hold</SelectItem>
-                            </>
-                          )}
+                          <SelectItem value="ALL">All Departments</SelectItem>
+                          {departments.map((dept) => (
+                            <SelectItem key={dept.id} value={dept.id}>
+                              {dept.departmentName}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
-                  )}
+
+                    {/* Project Filter */}
+                    <div className="space-y-2">
+                      <Label htmlFor="project" className="flex items-center gap-2">
+                        <FolderKanban className="h-3 w-3" />
+                        Project
+                      </Label>
+                      <Select
+                        value={filters.projectId || "ALL"}
+                        onValueChange={(value) => setFilters({ ...filters, projectId: value === "ALL" ? undefined : value })}
+                      >
+                        <SelectTrigger id="project">
+                          <SelectValue placeholder="All Projects" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALL">All Projects</SelectItem>
+                          {filteredProjects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.projectName} ({project.poNumber})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Contract Filter */}
+                    <div className="space-y-2">
+                      <Label htmlFor="contract" className="flex items-center gap-2">
+                        <FileCheck className="h-3 w-3" />
+                        Contract
+                      </Label>
+                      <Select
+                        value={filters.contractId || "ALL"}
+                        onValueChange={(value) => setFilters({ ...filters, contractId: value === "ALL" ? undefined : value })}
+                      >
+                        <SelectTrigger id="contract">
+                          <SelectValue placeholder="All Contracts" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALL">All Contracts</SelectItem>
+                          {contracts.map((contract) => (
+                            <SelectItem key={contract.id} value={contract.id}>
+                              {contract.contractNumber} - {contract.contractName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
                   {/* Active Filters Summary */}
                   {activeFilterCount > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap pt-2">
                       <span className="text-xs text-muted-foreground">Active filters:</span>
-                      {filters.dateFrom && (
-                        <Badge variant="secondary" className="text-xs">
-                          From: {filters.dateFrom}
-                        </Badge>
-                      )}
-                      {filters.dateTo && (
-                        <Badge variant="secondary" className="text-xs">
-                          To: {filters.dateTo}
-                        </Badge>
-                      )}
-                      {filters.departmentId && (
-                        <Badge variant="secondary" className="text-xs">
-                          Dept: {departments.find(d => d.id === filters.departmentId)?.departmentName}
-                        </Badge>
-                      )}
-                      {filters.projectId && (
-                        <Badge variant="secondary" className="text-xs">
-                          Project: {projects.find(p => p.id === filters.projectId)?.projectName}
-                        </Badge>
-                      )}
-                      {filters.contractId && (
-                        <Badge variant="secondary" className="text-xs">
-                          Contract: {contracts.find(c => c.id === filters.contractId)?.contractNumber}
-                        </Badge>
-                      )}
-                      {filters.status && (
-                        <Badge variant="secondary" className="text-xs">
-                          Status: {filters.status}
-                        </Badge>
-                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -688,64 +388,51 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
                       </Button>
                     </div>
                   )}
-                </>
-              )}
-            </CardContent>
-          </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Actions */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Generate Report</CardTitle>
+                <CardDescription>
+                  Preview or download your report
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={generating}
+                  onClick={() => handleGenerateReport(true)}
+                >
+                  {generating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Eye className="mr-2 h-4 w-4" />
+                  )}
+                  Preview PDF
+                </Button>
+
+                <Button
+                  className="w-full"
+                  disabled={generating}
+                  onClick={() => handleGenerateReport(false)}
+                >
+                  {generating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Download PDF
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-
-        {/* Right Column - Actions */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Generate Report</CardTitle>
-              <CardDescription>
-                Preview or download your report
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Button
-                className="w-full"
-                variant="outline"
-                disabled={!selectedTemplate || !dataSource || generating}
-                onClick={() => handleGenerateReport(true)}
-              >
-                {generating ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Eye className="mr-2 h-4 w-4" />
-                )}
-                Preview PDF
-              </Button>
-
-              <Button
-                className="w-full"
-                disabled={!selectedTemplate || !dataSource || generating}
-                onClick={() => handleGenerateReport(false)}
-              >
-                {generating ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Download PDF
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Quick Guide</CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs space-y-2 text-muted-foreground">
-              <p>1. Select a template from your available templates</p>
-              <p>2. Choose which data collection to use</p>
-              <p>3. Apply date filters if needed</p>
-              <p>4. Preview or download your PDF report</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
       )}
     </div>
   );

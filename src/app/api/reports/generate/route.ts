@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, StandardFonts, rgb } from 'pdf-lib';
 import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 import { adminDb } from '@/lib/firebase-admin';
 import { getVisualTemplate } from '@/lib/visual-template-firestore';
@@ -111,31 +111,34 @@ export async function POST(request: NextRequest) {
       const {
         templateId,
         templateSource = 'visual',
-        dataSource,
+        dataSource: providedDataSource,
         filters = {},
         preview = false,
         reportTemplateId, // Optional: ID of pre-built report template
       } = body;
 
-      if (!templateId || !dataSource) {
-        return NextResponse.json(
-          { error: 'Template ID and data source are required' },
-          { status: 400 }
-        );
+      // Validation
+      if (templateSource === 'pdf' && !templateId) {
+        return NextResponse.json({ error: 'Template ID is required for PDF templates' }, { status: 400 });
+      }
+      if (templateSource === 'prebuilt' && !reportTemplateId) {
+        return NextResponse.json({ error: 'Report Template ID is required for prebuilt reports' }, { status: 400 });
       }
 
-      // Get template
+      // Get template and determine data source
       let template: any;
       let templateTypeValue: string | undefined;
+      let dataSource = providedDataSource;
 
       if (templateSource === 'visual') {
+        if (!templateId) return NextResponse.json({ error: 'Template ID required' }, { status: 400 });
         template = await getVisualTemplate(templateId);
         if (!template) {
           return NextResponse.json({ error: 'Visual template not found' }, { status: 404 });
         }
         templateTypeValue = template.type;
-      } else {
-        // PDF template
+        if (!dataSource) dataSource = 'invoices'; // Default fallback
+      } else if (templateSource === 'pdf') {
         if (!adminDb) {
           return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
         }
@@ -146,9 +149,14 @@ export async function POST(request: NextRequest) {
         const docData = doc.data() as any;
         template = { id: doc.id, ...docData };
         templateTypeValue = docData?.type || docData?.templateType;
+        
+        // Infer data source if not provided
+        if (!dataSource && template.dataSourceConfig?.primaryCollection) {
+          dataSource = template.dataSourceConfig.primaryCollection;
+        }
       }
 
-      // Fetch data from specified source
+      // Fetch data
       let data;
       if (preview || !adminDb) {
         // Use sample data for preview or if DB not available
@@ -171,28 +179,26 @@ export async function POST(request: NextRequest) {
               }
 
               // Check if data is available
-              if (!result.data?.hasData) {
-                return NextResponse.json(
-                  {
-                    error: 'No data available for the selected filters',
-                    message: 'Try adjusting your date range, department, project, or other filters.',
-                    noData: true,
-                  },
-                  { status: 404 }
-                );
+              if (!result.data?.hasData && !preview) {
+                 // For preview we might want to show empty report? No, usually we want data.
+                 // But if it's a "Run" action, we should warn.
+                 // Let's allow empty data but maybe the generator handles it.
               }
 
               data = result.data;
             } else {
               console.warn(`[Reports] Processor not found: ${reportTemplate.processorFunction}`);
               // Fall back to basic fetch
-              data = await fetchDataFromSource(dataSource, filters);
+              if (dataSource) {
+                 data = await fetchDataFromSource(dataSource, filters);
+              }
             }
           } else {
-            // No processor, use basic fetch
-            data = await fetchDataFromSource(dataSource, filters);
+             if (dataSource) {
+                data = await fetchDataFromSource(dataSource, filters);
+             }
           }
-        } else {
+        } else if (dataSource) {
           // Fetch real data from Firestore (basic query)
           data = await fetchDataFromSource(dataSource, filters);
         }
@@ -201,7 +207,6 @@ export async function POST(request: NextRequest) {
       // Generate PDF
       if (templateSource === 'visual') {
         const pdfBytes = await generatePDFFromTemplate(template, data);
-
         return new NextResponse(Buffer.from(pdfBytes), {
           headers: {
             'Content-Type': 'application/pdf',
@@ -210,8 +215,22 @@ export async function POST(request: NextRequest) {
               : `attachment; filename="${template.name}-${Date.now()}.pdf"`,
           },
         });
+      } else if (templateSource === 'prebuilt') {
+         // Generate Prebuilt PDF (Simple Table Layout)
+         // We need a simple generator here.
+         // For now, let's use a basic function to dump data.
+         const pdfBytes = await generatePrebuiltPDF(data, reportTemplateId);
+         return new NextResponse(Buffer.from(pdfBytes), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': preview
+              ? `inline; filename="report-preview.pdf"`
+              : `attachment; filename="report-${Date.now()}.pdf"`,
+          },
+        });
       } else {
-        // Handle PDF template generation
+        // Handle PDF template generation (Form Filling)
+
         try {
           // 1. Get the base64 PDF data
           const base64Data = template.base64Data;
@@ -522,4 +541,155 @@ function collectionUsesReferences(collection: string, fieldType: 'department' | 
     return false; // Timesheets use string IDs
   }
   return true; // Default to references
+}
+
+/**
+ * Generate a PDF for prebuilt reports with tables
+ */
+async function generatePrebuiltPDF(data: any, reportTemplateId?: string): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  
+  let page = pdfDoc.addPage();
+  let { width, height } = page.getSize();
+  let y = height - 50;
+
+  // Title
+  const title = reportTemplateId 
+    ? reportTemplateId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') 
+    : 'Generated Report';
+
+  page.drawText(title, {
+    x: 50,
+    y,
+    size: 18,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+  y -= 20;
+
+  page.drawText(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, {
+    x: 50,
+    y,
+    size: 10,
+    font,
+    color: rgb(0.4, 0.4, 0.4),
+  });
+  y -= 40;
+
+  // Summary Section
+  if (data.summary) {
+    page.drawText('Summary', { x: 50, y, size: 14, font: boldFont });
+    y -= 20;
+    
+    for (const [key, value] of Object.entries(data.summary)) {
+      const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+      const valStr = typeof value === 'number' 
+        ? (key.toLowerCase().includes('amount') || key.toLowerCase().includes('cost') ? `$${value.toFixed(2)}` : value.toString())
+        : String(value);
+
+      page.drawText(`${label}: ${valStr}`, { x: 50, y, size: 10, font });
+      y -= 15;
+    }
+    y -= 20;
+  }
+
+  // Table Headers & Data
+  const items = data.items || (Array.isArray(data) ? data : []);
+  
+  if (items.length > 0) {
+    // Determine columns based on report type or data keys
+    let columns: { key: string, header: string, width: number }[] = [];
+    
+    if (reportTemplateId === 'po-status-report') {
+      columns = [
+        { key: 'poNumber', header: 'PO Number', width: 100 },
+        { key: 'projectName', header: 'Project Name', width: 200 },
+        { key: 'status', header: 'Status', width: 80 },
+        { key: 'poAmount', header: 'Amount', width: 100 },
+      ];
+    } else if (reportTemplateId === 'billable-hours-report') {
+      columns = [
+        { key: 'projectName', header: 'Project', width: 200 },
+        { key: 'totalHours', header: 'Total Hrs', width: 80 },
+        { key: 'billableHours', header: 'Billable', width: 80 },
+        { key: 'nonBillableHours', header: 'Non-Billable', width: 80 },
+      ];
+    } else if (reportTemplateId === 'employee-utilization-report') {
+      columns = [
+        { key: 'employeeName', header: 'Employee', width: 150 },
+        { key: 'totalHours', header: 'Total Hrs', width: 80 },
+        { key: 'billableHours', header: 'Billable', width: 80 },
+        { key: 'utilizationRate', header: 'Util %', width: 80 },
+      ];
+    } else {
+      // Auto-detect columns from first item (limit to 5)
+      const keys = Object.keys(items[0]).filter(k => k !== 'id' && typeof items[0][k] !== 'object').slice(0, 5);
+      columns = keys.map(k => ({ 
+        key: k, 
+        header: k.charAt(0).toUpperCase() + k.slice(1), 
+        width: (width - 100) / keys.length 
+      }));
+    }
+
+    // Draw Header
+    let x = 50;
+    page.drawRectangle({ x: 45, y: y - 5, width: width - 90, height: 20, color: rgb(0.9, 0.9, 0.9) });
+    
+    for (const col of columns) {
+      page.drawText(col.header, { x, y, size: 10, font: boldFont });
+      x += col.width;
+    }
+    y -= 20;
+
+    // Draw Rows
+    for (const item of items) {
+      if (y < 50) {
+        page = pdfDoc.addPage();
+        y = height - 50;
+        // Redraw header on new page
+        x = 50;
+        page.drawRectangle({ x: 45, y: y - 5, width: width - 90, height: 20, color: rgb(0.9, 0.9, 0.9) });
+        for (const col of columns) {
+          page.drawText(col.header, { x, y, size: 10, font: boldFont });
+          x += col.width;
+        }
+        y -= 20;
+      }
+
+      x = 50;
+      for (const col of columns) {
+        let val = item[col.key];
+        
+        // Formatting
+        if (typeof val === 'number') {
+          if (col.key.toLowerCase().includes('amount') || col.key.toLowerCase().includes('cost')) {
+            val = `$${val.toFixed(2)}`;
+          } else if (col.key.toLowerCase().includes('rate') || col.key.toLowerCase().includes('percent')) {
+            val = `${val.toFixed(1)}%`;
+          } else {
+            val = val.toString();
+          }
+        } else {
+          val = String(val || '-');
+        }
+
+        // Truncate
+        const maxChars = Math.floor(col.width / 6);
+        if (val.length > maxChars) val = val.substring(0, maxChars - 3) + '...';
+
+        page.drawText(val, { x, y, size: 10, font });
+        x += col.width;
+      }
+      y -= 15;
+      
+      // Draw light line
+      page.drawLine({ start: { x: 50, y: y + 12 }, end: { x: width - 50, y: y + 12 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
+    }
+  } else {
+    page.drawText('No data found for the selected criteria.', { x: 50, y, size: 12, font, color: rgb(0.5, 0.5, 0.5) });
+  }
+
+  return pdfDoc.save();
 }

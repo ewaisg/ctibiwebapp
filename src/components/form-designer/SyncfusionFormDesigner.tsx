@@ -79,6 +79,10 @@ export function SyncfusionFormDesigner({
   const [templateType, setTemplateType] = useState<'Invoice' | 'CoverPage' | 'Report' | 'Custom'>(
     existingTemplate?.templateType || 'Custom'
   );
+  const [reportType, setReportType] = useState<'General' | 'DateRange'>(
+    existingTemplate?.reportType || 'General'
+  );
+  const [category, setCategory] = useState(existingTemplate?.category || 'Financial');
   const [primaryCollection, setPrimaryCollection] = useState(
     existingTemplate?.dataSourceConfig?.primaryCollection || 'invoices'
   );
@@ -359,6 +363,8 @@ export function SyncfusionFormDesigner({
         id: templateId || existingTemplate?.id || '',
         templateName,
         templateType,
+        reportType,
+        category,
         base64Data: savedPdfBase64,
         syncfusionFormFields: formFields,
         fieldMappings,
@@ -385,6 +391,8 @@ export function SyncfusionFormDesigner({
   }, [
     templateName,
     templateType,
+    reportType,
+    category,
     primaryCollection,
     pdfBase64,
     formFields,
@@ -429,6 +437,39 @@ export function SyncfusionFormDesigner({
                 <SelectItem value="CoverPage">Cover Page</SelectItem>
                 <SelectItem value="Report">Report</SelectItem>
                 <SelectItem value="Custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-48">
+            <Label htmlFor="reportType" className="text-xs">
+              Report Type
+            </Label>
+            <Select value={reportType} onValueChange={(v: any) => setReportType(v)}>
+              <SelectTrigger id="reportType" className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="General">General (No Date)</SelectItem>
+                <SelectItem value="DateRange">Date Range</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-48">
+            <Label htmlFor="category" className="text-xs">
+              Category
+            </Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger id="category" className="mt-1">
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Project">Project</SelectItem>
+                <SelectItem value="Contract">Contract</SelectItem>
+                <SelectItem value="Employee">Employee</SelectItem>
+                <SelectItem value="Finance">Finance</SelectItem>
+                <SelectItem value="Other">Other</SelectItem>
               </SelectContent>
             </Select>
           </div>

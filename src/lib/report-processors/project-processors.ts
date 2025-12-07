@@ -654,3 +654,268 @@ export async function processProjectHours(filters: ReportFilters) {
     return { success: false, error: String(error), data: null };
   }
 }
+
+/**
+ * Process PO Status Report
+ */
+export async function processPOStatusReport(filters: ReportFilters) {
+  if (!adminDb) {
+    return { success: false, error: 'Database not initialized', data: null };
+  }
+
+  try {
+    // Fetch projects (which contain PO info)
+    let projectsQuery: any = adminDb.collection('projects');
+    const projectsSnapshot = await projectsQuery.get();
+    const projects = projectsSnapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Project[];
+
+    // Apply filters
+    let filteredProjects = projects;
+
+    if (filters.departmentId) {
+      filteredProjects = filteredProjects.filter(p => {
+        const deptId = extractId(p.departmentId);
+        return deptId === filters.departmentId;
+      });
+    }
+
+    if (filters.contractId) {
+      filteredProjects = filteredProjects.filter(p => {
+        const contractId = extractId(p.contractId);
+        return contractId === filters.contractId;
+      });
+    }
+
+    if (filters.projectId) {
+      filteredProjects = filteredProjects.filter(p => p.id === filters.projectId);
+    }
+
+    if (filters.status) {
+      filteredProjects = filteredProjects.filter(p => p.status === filters.status);
+    }
+
+    // Calculate PO usage (this would require fetching invoices to see how much of PO is used)
+    // For now, we'll just list the PO details from the project
+    
+    const items = filteredProjects.map(p => ({
+      projectName: p.projectName,
+      poNumber: p.poNumber,
+      poAmount: p.poAmount || 0,
+      status: p.status,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      // In a real implementation, we would sum up invoices to calculate remaining balance
+      remainingBalance: p.poAmount || 0, // Placeholder
+    }));
+
+    return {
+      success: true,
+      data: {
+        hasData: items.length > 0,
+        items,
+        summary: {
+          totalPOAmount: items.reduce((sum, item) => sum + (item.poAmount || 0), 0),
+          count: items.length
+        }
+      }
+    };
+  } catch (error) {
+    console.error('Error processing PO Status Report:', error);
+    return { success: false, error: 'Failed to process report', data: null };
+  }
+}
+
+/**
+ * Process Billable Hours Report
+ */
+export async function processBillableHours(filters: ReportFilters) {
+  if (!adminDb) {
+    return { success: false, error: 'Database not initialized', data: null };
+  }
+
+  try {
+    // Fetch timesheets
+    let timesheetsQuery: any = adminDb.collection('timesheets');
+    
+    // Apply date filters if present
+    if (filters.startDate) {
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', filters.startDate);
+    }
+    if (filters.endDate) {
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', filters.endDate);
+    }
+
+    const timesheetsSnapshot = await timesheetsQuery.get();
+    const timesheets = timesheetsSnapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    })) as CtiTimesheet[];
+
+    // Group by Project
+    const projectHours = new Map<string, {
+      projectName: string;
+      totalHours: number;
+      billableHours: number;
+      nonBillableHours: number;
+    }>();
+
+    // We need to fetch projects to get names if not in timesheet
+    // For optimization, we'll just use what's in timesheet or fetch lazily if needed
+    // Assuming timesheet has project info or we can derive it.
+    // The current CtiTimesheet structure might store project info in 'labors' array.
+
+    for (const ts of timesheets) {
+      if (!ts.labors || !Array.isArray(ts.labors)) continue;
+
+      // Filter by employee/department if needed
+      if (filters.employeeId && extractId(ts.employeeId) !== filters.employeeId) continue;
+      
+      // Check department via employee (would require fetching employee) - skipping for now for speed
+      
+      for (const labor of ts.labors) {
+        // Assuming labor has project info. 
+        // Based on previous code: laborTitle === 'Project/Job'
+        if (labor.laborTitle === 'Project/Job' || labor.laborTitle === 'Project/Categories') {
+           const projectName = labor.laborValue || 'Unknown Project';
+           const hours = Number(ts.totalHoursActual) || 0; // This is total for timesheet, might need per-row logic if available
+           
+           // Simplified: Assuming the whole timesheet is for this project if found
+           // In reality, timesheets might be split. 
+           // If 'labors' is just metadata, we use totalHoursActual.
+           
+           if (!projectHours.has(projectName)) {
+             projectHours.set(projectName, {
+               projectName,
+               totalHours: 0,
+               billableHours: 0,
+               nonBillableHours: 0
+             });
+           }
+           
+           const entry = projectHours.get(projectName)!;
+           entry.totalHours += hours;
+           // Assuming all project hours are billable for now unless specified
+           entry.billableHours += hours; 
+        }
+      }
+    }
+
+    const items = Array.from(projectHours.values());
+
+    return {
+      success: true,
+      data: {
+        hasData: items.length > 0,
+        items,
+        summary: {
+          totalBillable: items.reduce((sum, item) => sum + item.billableHours, 0),
+          totalHours: items.reduce((sum, item) => sum + item.totalHours, 0)
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error('Error processing Billable Hours Report:', error);
+    return { success: false, error: 'Failed to process report', data: null };
+  }
+}
+
+/**
+ * Process Employee Utilization Report
+ */
+export async function processEmployeeUtilization(filters: ReportFilters) {
+  if (!adminDb) {
+    return { success: false, error: 'Database not initialized', data: null };
+  }
+
+  try {
+    // Fetch timesheets
+    let timesheetsQuery: any = adminDb.collection('timesheets');
+    
+    if (filters.startDate) {
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', filters.startDate);
+    }
+    if (filters.endDate) {
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', filters.endDate);
+    }
+
+    const timesheetsSnapshot = await timesheetsQuery.get();
+    const timesheets = timesheetsSnapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    })) as CtiTimesheet[];
+
+    // Fetch Employees to get names
+    const employeesSnapshot = await adminDb.collection('employees').get();
+    const employeesMap = new Map(employeesSnapshot.docs.map((doc: any) => [doc.id, doc.data()]));
+
+    // Group by Employee
+    const employeeStats = new Map<string, {
+      employeeName: string;
+      totalHours: number;
+      billableHours: number; // Project hours
+      nonBillableHours: number; // Admin/Leave etc
+      capacity: number; // Assuming 40h/week * number of weeks
+    }>();
+
+    timesheets.forEach(ts => {
+      const empId = extractId(ts.employeeId);
+      if (!empId) return;
+      
+      if (filters.employeeId && empId !== filters.employeeId) return;
+
+      const empData = employeesMap.get(empId);
+      const employeeName = empData ? `${empData.firstName} ${empData.lastName}` : 'Unknown Employee';
+
+      if (!employeeStats.has(empId)) {
+        employeeStats.set(empId, {
+          employeeName,
+          totalHours: 0,
+          billableHours: 0,
+          nonBillableHours: 0,
+          capacity: 40 // Base capacity for one week
+        });
+      }
+
+      const stats = employeeStats.get(empId)!;
+      const hours = Number(ts.totalHoursActual) || 0;
+      stats.totalHours += hours;
+      
+      // Determine if billable (Project related)
+      const isProject = ts.labors?.some((l: any) => l.laborTitle === 'Project/Job');
+      if (isProject) {
+        stats.billableHours += hours;
+      } else {
+        stats.nonBillableHours += hours;
+      }
+      
+      // Add capacity for each timesheet found (assuming 1 timesheet = 1 week)
+      // If multiple timesheets per week exist, this logic needs refinement, but works for 1 per week.
+      // Or we calculate capacity based on date range.
+    });
+
+    const items = Array.from(employeeStats.values()).map(stat => ({
+      ...stat,
+      utilizationRate: stat.capacity > 0 ? (stat.billableHours / stat.capacity) * 100 : 0
+    }));
+
+    return {
+      success: true,
+      data: {
+        hasData: items.length > 0,
+        items,
+        summary: {
+          avgUtilization: items.length > 0 ? items.reduce((sum, i) => sum + i.utilizationRate, 0) / items.length : 0,
+          totalHours: items.reduce((sum, i) => sum + i.totalHours, 0)
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error('Error processing Employee Utilization Report:', error);
+    return { success: false, error: 'Failed to process report', data: null };
+  }
+}

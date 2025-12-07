@@ -89,17 +89,26 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
   const filteredCustomTemplates = customTemplates.filter(template => {
     const matchesSearch = searchQuery === "" ||
       template.templateName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+    
+    const matchesCategory = selectedCategory === "all" || 
+                            selectedCategory === "custom" ||
+                            template.category === selectedCategory;
+
+    return matchesSearch && matchesCategory;
   });
+
+  const getCustomCountByCategory = (category: string) => {
+    return customTemplates.filter(t => t.category === category).length;
+  };
 
   const categories = [
     { value: "all", label: "All Reports", count: allReportTemplates.length + customTemplates.length },
     { value: "custom", label: "My Templates", count: customTemplates.length },
-    { value: "Financial", label: "Financial", count: getReportsByCategory("Financial").length },
-    { value: "Labor", label: "Labor", count: getReportsByCategory("Labor").length },
-    { value: "Project", label: "Project", count: getReportsByCategory("Project").length },
-    { value: "Compliance", label: "Compliance", count: getReportsByCategory("Compliance").length },
-    { value: "Executive", label: "Executive", count: getReportsByCategory("Executive").length },
+    { value: "Financial", label: "Financial", count: getReportsByCategory("Financial").length + getCustomCountByCategory("Financial") },
+    { value: "Labor", label: "Labor", count: getReportsByCategory("Labor").length + getCustomCountByCategory("Labor") },
+    { value: "Project", label: "Project", count: getReportsByCategory("Project").length + getCustomCountByCategory("Project") },
+    { value: "Compliance", label: "Compliance", count: getReportsByCategory("Compliance").length + getCustomCountByCategory("Compliance") },
+    { value: "Executive", label: "Executive", count: getReportsByCategory("Executive").length + getCustomCountByCategory("Executive") },
   ];
 
   return (
@@ -140,9 +149,9 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
 
           <TabsContent value={selectedCategory} className="space-y-3 mt-4">
             {/* Custom Templates Section */}
-            {(selectedCategory === 'all' || selectedCategory === 'custom') && filteredCustomTemplates.length > 0 && (
+            {filteredCustomTemplates.length > 0 && (
               <div className="mb-6">
-                {(selectedCategory === 'all') && (
+                {(selectedCategory !== 'custom') && (
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">My Templates</h3>
                 )}
                 <div className="grid gap-3">

@@ -324,6 +324,8 @@ export interface PdfTemplate {
   id: string; // auto-generated ID by Firestore
   templateName: string;
   templateType: 'Invoice' | 'CoverPage' | 'Report' | 'Custom';
+  reportType?: 'General' | 'DateRange'; // New field for report type
+  category?: string; // New field for report category
   base64Data: string;
   storageUrl?: string; // For large templates stored in Firebase Storage
   fieldMappings: TemplateFieldMapping[];

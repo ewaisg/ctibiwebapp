@@ -7,17 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { FileText, Settings, Eye, Trash2, Plus, ArrowLeft, Edit, MoreHorizontal, FileEdit, Upload } from "lucide-react";
+import { FileText, Eye, Trash2, Plus, Edit, FileEdit, Upload } from "lucide-react";
 import { TemplateUploadDialog } from "@/components/template-upload-dialog";
-import { TemplateAssignmentDialog } from "@/components/template-assignment-dialog";
-import { PdfFieldMapper } from "@/components/pdf-field-mapper/PdfFieldMapper";
-import type { PdfTemplate, TemplateAssignment, ExtendedPdfTemplate } from "@/types";
+import type { ExtendedPdfTemplate } from "@/types";
 import type { VisualTemplate } from "@/types/template-designer";
 import type { MappedPdfTemplate } from "@/types/pdf-field-mapper";
 import toast from "react-hot-toast";
@@ -44,15 +36,10 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
   const [templates, setTemplates] = useState<ExtendedPdfTemplate[]>([]);
   const [visualTemplates, setVisualTemplates] = useState<VisualTemplate[]>([]);
   const [mappedTemplates, setMappedTemplates] = useState<MappedPdfTemplate[]>([]);
-  const [assignments, setAssignments] = useState<TemplateAssignment[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<TemplateAssignment | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [designerOpen, setDesignerOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<VisualTemplate | null>(null);
-  const [fieldMapperOpen, setFieldMapperOpen] = useState(false);
-  const [editingMappedTemplate, setEditingMappedTemplate] = useState<MappedPdfTemplate | null>(null);
 
   // NEW: Form Designer state
   const [formDesignerOpen, setFormDesignerOpen] = useState(false);
@@ -81,37 +68,24 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       return Promise.all([
         secureRequest('/api/pdf-templates'),
         secureRequest('/api/visual-templates'),
-        secureRequest('/api/pdf-templates/mapped'),
-        secureRequest('/api/template-assignments')
+        secureRequest('/api/pdf-templates/mapped')
       ] as const);
     };
 
     try {
-      let [templatesRes, visualTemplatesRes, mappedTemplatesRes, assignmentsRes] = await fetchTriplet();
+      let [templatesRes, visualTemplatesRes, mappedTemplatesRes] = await fetchTriplet();
 
       // If token not yet valid (e.g., first load race) retry once after refreshing token
-      if ((templatesRes.status === 401 || visualTemplatesRes.status === 401 || mappedTemplatesRes.status === 401 || assignmentsRes.status === 401) && typeof refreshIdToken === 'function') {
+      if ((templatesRes.status === 401 || visualTemplatesRes.status === 401 || mappedTemplatesRes.status === 401) && typeof refreshIdToken === 'function') {
         await refreshIdToken();
-        ;[templatesRes, visualTemplatesRes, mappedTemplatesRes, assignmentsRes] = await fetchTriplet();
+        ;[templatesRes, visualTemplatesRes, mappedTemplatesRes] = await fetchTriplet();
       }
 
       if (templatesRes.ok) {
         const raw = await templatesRes.json();
         const list = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
-        console.log('📥 Loaded templates:', list.length);
-        console.log('📥 Templates with syncfusionFormFields:',
-          list.filter((t: any) => t.syncfusionFormFields && t.syncfusionFormFields.length > 0).length
-        );
-        if (list.length > 0) {
-          console.log('📥 Sample template:', {
-            name: list[0].templateName,
-            hasSyncfusionFields: !!list[0].syncfusionFormFields,
-            syncfusionFieldsCount: list[0].syncfusionFormFields?.length || 0,
-          });
-        }
         setTemplates(list as unknown as ExtendedPdfTemplate[]);
       }
-      // Do not clear on transient errors; keep previous data visible
 
       if (visualTemplatesRes.ok) {
         const rawVT = await visualTemplatesRes.json();
@@ -123,12 +97,6 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
         const rawMT = await mappedTemplatesRes.json();
         const listMT = Array.isArray(rawMT?.templates) ? rawMT.templates : (Array.isArray(rawMT) ? rawMT : []);
         setMappedTemplates(listMT as unknown as MappedPdfTemplate[]);
-      }
-
-      if (assignmentsRes.ok) {
-        const rawA = await assignmentsRes.json();
-        const listA = Array.isArray(rawA) ? rawA : (Array.isArray(rawA?.items) ? rawA.items : []);
-        setAssignments(listA as unknown as TemplateAssignment[]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -155,14 +123,6 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
 
   const handleFormSave = async (template: ExtendedPdfTemplate) => {
     try {
-      console.log('🔵 Saving form with data:', {
-        templateName: template.templateName,
-        templateType: template.templateType,
-        syncfusionFormFieldsCount: template.syncfusionFormFields?.length || 0,
-        fieldMappingsCount: template.fieldMappings?.length || 0,
-        hasPdfData: !!template.base64Data,
-      });
-
       const response = await secureRequest('/api/pdf-templates', {
         method: 'POST',
         headers: {
@@ -172,15 +132,12 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
       });
 
       if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Form saved successfully:', result);
         toast.success('Form saved successfully!');
         setFormDesignerOpen(false);
         setEditingForm(null);
         await loadData();
       } else {
         const error = await response.json();
-        console.error('❌ Failed to save form:', error);
         toast.error(`Failed to save form: ${error.error || 'Unknown error'}`);
       }
     } catch (error) {
@@ -214,39 +171,11 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
     }
   };
 
-  // Form Designer tab shows ALL templates (you can add form fields to any template)
+  // Form Designer tab shows ALL templates
   const syncfusionForms = templates;
-  console.log('🔍 Filter results:', {
-    totalTemplates: templates.length,
-    templatesWithFormFields: templates.filter(t => t.syncfusionFormFields && t.syncfusionFormFields.length > 0).length,
-    templatesWithoutFormFields: templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0).length,
-  });
-
-  // Legacy templates tab shows templates without form designer enhancements (for backward compatibility)
-  // const legacyTemplates = templates.filter(t => !t.syncfusionFormFields || t.syncfusionFormFields.length === 0);
 
   const handleTemplateUploaded = () => {
     loadData();
-  };
-
-  const handleAssignmentCreated = () => {
-    loadData();
-  };
-
-  const deleteTemplate = async (templateId: string) => {
-    if (!confirm('Are you sure you want to delete this template?')) return;
-
-    try {
-      const response = await secureRequest(`/api/pdf-templates/${templateId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        loadData();
-      }
-    } catch (error) {
-      console.error('Error deleting template:', error);
-    }
   };
 
   const previewTemplate = (templateId: string) => {
@@ -255,197 +184,57 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
     window.open(previewUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
   };
 
-  const deleteAssignment = async (assignmentId: string) => {
-    if (!confirm('Are you sure you want to delete this template assignment?')) return;
-
-    try {
-      const response = await secureRequest(`/api/template-assignments/${assignmentId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        // Show success feedback
-        console.log('Assignment deleted successfully');
-        loadData();
-      } else {
-        const error = await response.json();
-        alert(`Failed to delete assignment: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error deleting assignment:', error);
-      alert('Failed to delete assignment. Please try again.');
-    }
-  };
-
-  const editAssignment = (assignment: TemplateAssignment) => {
-    setEditingAssignment(assignment);
-    setEditDialogOpen(true);
-  };
-
-  const handleEditDialogClose = () => {
-    setEditingAssignment(null);
-    setEditDialogOpen(false);
-  };
-
   const handleOpenDesigner = () => {
     setEditingTemplate(null);
     setDesignerOpen(true);
   };
 
   const handleTemplateSaved = async (template: VisualTemplate) => {
-    console.log('Template saved:', template);
-
-    // Update the visualTemplates state directly without reloading all data
-    // This prevents the designer from closing/reopening
     setVisualTemplates(prev => {
-      const existingIndex = prev.findIndex(t => t.id === template.id);
-      if (existingIndex >= 0) {
-        // Update existing template
-        const updated = [...prev];
-        updated[existingIndex] = template;
-        return updated;
-      } else {
-        // Add new template
-        return [...prev, template];
+      const index = prev.findIndex(t => t.id === template.id);
+      if (index >= 0) {
+        const newTemplates = [...prev];
+        newTemplates[index] = template;
+        return newTemplates;
       }
+      return [...prev, template];
     });
   };
 
-  const deleteVisualTemplate = async (templateId: string) => {
-    if (!confirm('Are you sure you want to delete this visual template?')) return;
-
-    try {
-      const response = await secureRequest(`/api/visual-templates/${templateId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        loadData();
-      } else {
-        const error = await response.json();
-        alert(`Failed to delete template: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error deleting visual template:', error);
-      alert('Failed to delete template. Please try again.');
-    }
-  };
-
-  const previewVisualTemplate = async (templateId: string) => {
-    try {
-      const response = await secureRequest(`/api/visual-templates/${templateId}/generate-pdf`, {
-        method: 'GET'
-      });
-
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      } else {
-        const error = await response.json();
-        alert(`Failed to preview template: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error previewing visual template:', error);
-      alert('Failed to preview template. Please try again.');
-    }
-  };
-
-  const editVisualTemplate = (template: VisualTemplate) => {
-    setEditingTemplate(template);
-    setDesignerOpen(true);
-  };
-
-  // Mapped template handlers
-  const handleOpenFieldMapper = () => {
-    setEditingMappedTemplate(null);
-    setFieldMapperOpen(true);
-  };
-
-  const handleMappedTemplateSaved = (template: MappedPdfTemplate) => {
-    console.log('Mapped template saved:', template);
-    setFieldMapperOpen(false);
-    setEditingMappedTemplate(null);
-    loadData();
-  };
-
-  const deleteMappedTemplate = async (templateId: string) => {
-    if (!confirm('Are you sure you want to delete this mapped template?')) return;
-
-    try {
-      const response = await secureRequest(`/api/pdf-templates/mapped?id=${templateId}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        loadData();
-      } else {
-        const error = await response.json();
-        alert(`Failed to delete template: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error deleting mapped template:', error);
-      alert('Failed to delete template. Please try again.');
-    }
-  };
-
-  const editMappedTemplate = (template: MappedPdfTemplate) => {
-    setEditingMappedTemplate(template);
-    setFieldMapperOpen(true);
-  };
-
-  if (initialLoading) {
-    return <div className="flex items-center justify-center h-64">Loading...</div>;
-  }
-
   return (
     <>
-      {(showBackButton || showTitle) && (
-        <div className="flex items-center justify-between">
-          <div>
-            {showBackButton && (
-              <Button variant="outline" onClick={() => window.history.back()} className="mb-4">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Admin
-              </Button>
-            )}
-            {showTitle && (
-              <>
-                <h2 className="text-3xl font-bold tracking-tight">PDF Templates</h2>
-                <p className="text-muted-foreground">
-                  Manage PDF templates for invoices, cover pages, and reports
-                </p>
-              </>
-            )}
-          </div>
+      {formDesignerOpen ? (
+        <div className="fixed inset-0 z-50 bg-background">
+          <SyncfusionFormDesigner
+            templateId={editingForm?.id}
+            existingTemplate={editingForm}
+            onSave={handleFormSave}
+            onCancel={handleFormCancel}
+          />
         </div>
-      )}
-
-      <Tabs defaultValue="form-designer" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="form-designer">
-            <FileEdit className="mr-2 h-4 w-4" />
-            Form Designer
-          </TabsTrigger>
-          <TabsTrigger value="assignments">Assignments</TabsTrigger>
-        </TabsList>
-
-        {/* NEW: Form Designer Tab */}
-        <TabsContent value="form-designer" className="space-y-4">
-          {formDesignerOpen ? (
-            <div className="h-[calc(100vh-12rem)] border rounded-lg overflow-hidden">
-              <SyncfusionFormDesigner
-                templateId={editingForm?.id}
-                existingTemplate={editingForm || undefined}
-                onSave={handleFormSave}
-                onCancel={handleFormCancel}
-              />
+      ) : (
+        <div className="container mx-auto p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">PDF Templates</h1>
+              <p className="text-muted-foreground">
+                Manage your PDF templates and forms
+              </p>
             </div>
-          ) : (
-            <>
-              <div className="flex justify-between items-center">
+          </div>
+
+          <Tabs defaultValue="forms" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="forms" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Forms & Templates
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="forms" className="space-y-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-medium">Syncfusion Form Designer</h3>
+                  <h2 className="text-lg font-semibold">PDF Forms</h2>
                   <p className="text-sm text-muted-foreground">
                     Create PDF forms with visual field mapping to your database
                   </p>
@@ -510,6 +299,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                         </div>
                         <CardDescription>
                           {form.templateType} • v{form.version || 1}
+                          {form.category && <span className="ml-2">• {form.category}</span>}
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -553,127 +343,24 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
                           <div>{form.fieldMappings?.length || 0} mapped fields</div>
                           <div>{form.pageCount || 0} pages</div>
                           <div>Source: {form.dataSourceConfig?.primaryCollection || 'N/A'}</div>
+                          {form.reportType && <div>Type: {form.reportType}</div>}
                         </div>
                       </CardContent>
                     </Card>
                   ))}
                 </div>
               )}
-            </>
-          )}
-        </TabsContent>
+            </TabsContent>
+          </Tabs>
 
-        {/* Removed Templates and Field Mapper tabs */}
-        
-        <TabsContent value="assignments" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">Template Assignments</h3>
-            <TemplateAssignmentDialog
-              templates={syncfusionForms}
-              visualTemplates={visualTemplates}
-              onAssignmentCreated={handleAssignmentCreated}
-            >
-              <Button>
-                <Settings className="mr-2 h-4 w-4" />
-                New Assignment
-              </Button>
-            </TemplateAssignmentDialog>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Current Assignments</CardTitle>
-              <CardDescription>
-                Templates assigned to contracts, departments, and projects
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {assignments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8">
-                  <Settings className="h-12 w-12 text-muted-foreground mb-3" />
-                  <h4 className="font-medium mb-2">No Template Assignments</h4>
-                  <p className="text-sm text-muted-foreground text-center mb-4">
-                    Assign templates to contracts, departments, or projects to control which templates are used for invoice generation.
-                  </p>
-                  <TemplateAssignmentDialog
-                    templates={syncfusionForms}
-                    visualTemplates={visualTemplates}
-                    onAssignmentCreated={handleAssignmentCreated}
-                  >
-                    <Button variant="outline">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create First Assignment
-                    </Button>
-                  </TemplateAssignmentDialog>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {assignments.map((assignment) => (
-                  <div key={assignment.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <div className="font-medium">{assignment.templateName}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {assignment.assignmentType}: {assignment.assignmentName}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{assignment.templateType}</Badge>
-                      <Badge variant={assignment.isActive ? "default" : "secondary"}>
-                        {assignment.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => editAssignment(assignment)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => deleteAssignment(assignment.id)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Edit Assignment Dialog */}
-      {editingAssignment && (
-        <TemplateAssignmentDialog
-          templates={syncfusionForms}
-          visualTemplates={visualTemplates}
-          onAssignmentCreated={() => {
-            handleAssignmentCreated();
-            handleEditDialogClose();
-          }}
-          editingAssignment={editingAssignment}
-          onClose={handleEditDialogClose}
-        >
-          <div />
-        </TemplateAssignmentDialog>
+          <TemplateDesignerDialog
+            open={designerOpen}
+            onOpenChange={setDesignerOpen}
+            templateToEdit={editingTemplate}
+            onTemplateSaved={handleTemplateSaved}
+          />
+        </div>
       )}
-
-      {/* Template Designer Dialog */}
-      <TemplateDesignerDialog
-        open={designerOpen}
-        onOpenChange={setDesignerOpen}
-        templateToEdit={editingTemplate}
-        onTemplateSaved={handleTemplateSaved}
-      />
     </>
   );
 }

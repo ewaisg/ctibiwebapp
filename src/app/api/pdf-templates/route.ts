@@ -97,6 +97,8 @@ export async function POST(request: NextRequest) {
           templateMetadata = {
             templateName: formData.get('templateName') as string,
             templateType: formData.get('templateType') as string,
+            reportType: formData.get('reportType') as string,
+            category: formData.get('category') as string,
             fieldMappings,
             isActive: (formData.get('isActive') as string) !== 'false',
             createdBy: formData.get('createdBy') as string,
@@ -124,6 +126,10 @@ export async function POST(request: NextRequest) {
 
       // Sanitize and validate template metadata
       const sanitizedMetadata = sanitizeTemplateData(templateMetadata);
+      // Ensure new fields are preserved if passed
+      if (templateMetadata.reportType) sanitizedMetadata.reportType = templateMetadata.reportType;
+      if (templateMetadata.category) sanitizedMetadata.category = templateMetadata.category;
+
       const validation = validatePdfTemplate({ ...sanitizedMetadata, base64Data: pdfBuffer.toString('base64') });
 
       if (!validation.isValid) {

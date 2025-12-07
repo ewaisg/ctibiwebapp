@@ -260,9 +260,9 @@ export function FieldMappingPanel({
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
                               {isMapped ? (
-                                <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
+                                <Check className="h-4 w-4 text-green-600 shrink-0" />
                               ) : (
-                                <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                                <AlertCircle className="h-4 w-4 text-yellow-600 shrink-0" />
                               )}
                               <span className="font-mono text-sm font-medium truncate max-w-[180px]" title={field.name}>
                                 {field.name}

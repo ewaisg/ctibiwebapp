@@ -28,6 +28,7 @@ export {
   processChangeOrderImpact,
   processProjectForecast,
   processProjectHours,
+  processPOStatusReport,
 } from './project-processors';
 
 // Compliance Reports

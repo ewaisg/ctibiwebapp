@@ -5,12 +5,12 @@
 export interface ReportFilters {
   dateFrom?: string;
   dateTo?: string;
-  departmentId?: string;
-  projectId?: string;
-  contractId?: string;
+  departmentId?: string | string[]; // Support single or multiple
+  projectId?: string | string[]; // Support single or multiple
+  contractId?: string | string[]; // Support single or multiple
   status?: string;
-  employeeId?: string;
-  companyId?: string;
+  employeeId?: string | string[]; // Support single or multiple
+  companyId?: string | string[]; // Support single or multiple
 }
 
 export interface ReportTemplate {

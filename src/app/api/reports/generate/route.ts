@@ -7,6 +7,7 @@ import { generatePDFFromTemplate } from '@/lib/template-pdf-generator';
 import { generateSampleData } from '@/lib/template-data-schemas';
 import { getReportTemplate } from '@/lib/report-templates';
 import { getProcessor } from '@/lib/report-processors';
+import { getPDFGenerator, hasPDFGenerator } from '@/lib/pdf-generation/generators';
 
 /**
  * GET /api/reports/generate
@@ -185,7 +186,10 @@ export async function POST(request: NextRequest) {
                  // Let's allow empty data but maybe the generator handles it.
               }
 
-              data = result.data;
+              // Transform processor data format to PDF generator format
+              // Processors return: { results: [], totals: {} }
+              // PDF generators expect: { items: [], summary: {} }
+              data = transformProcessorDataForPDF(result.data);
             } else {
               console.warn(`[Reports] Processor not found: ${reportTemplate.processorFunction}`);
               // Fall back to basic fetch
@@ -216,9 +220,24 @@ export async function POST(request: NextRequest) {
           },
         });
       } else if (templateSource === 'prebuilt') {
-         // Generate Prebuilt PDF (Simple Table Layout)
-         // We need a simple generator here.
-         // For now, let's use a basic function to dump data.
+         // Generate Prebuilt PDF using new PDF generation library
+         if (reportTemplateId && hasPDFGenerator(reportTemplateId)) {
+           // Use new styled PDF generator
+           const generator = getPDFGenerator(reportTemplateId);
+           if (generator) {
+             const pdfBytes = await generator(data, filters);
+             return new NextResponse(Buffer.from(pdfBytes), {
+               headers: {
+                 'Content-Type': 'application/pdf',
+                 'Content-Disposition': preview
+                   ? `inline; filename="report-preview.pdf"`
+                   : `attachment; filename="report-${Date.now()}.pdf"`,
+               },
+             });
+           }
+         }
+
+         // Fallback to basic PDF generator if no styled generator exists
          const pdfBytes = await generatePrebuiltPDF(data, reportTemplateId);
          return new NextResponse(Buffer.from(pdfBytes), {
           headers: {
@@ -692,4 +711,26 @@ async function generatePrebuiltPDF(data: any, reportTemplateId?: string): Promis
   }
 
   return pdfDoc.save();
+}
+
+/**
+ * Transform processor data format to match PDF generator expectations
+ * Processors return: { results: [], totals: {}, filters: {}, hasData: boolean }
+ * PDF generators expect: { items: [], summary: {} }
+ */
+function transformProcessorDataForPDF(processorData: any): any {
+  if (!processorData) return { items: [], summary: {} };
+
+  // If already in correct format, return as-is
+  if (processorData.items && processorData.summary) {
+    return processorData;
+  }
+
+  // Transform from processor format to PDF generator format
+  return {
+    items: processorData.results || processorData.items || [],
+    summary: processorData.totals || processorData.summary || {},
+    hasData: processorData.hasData,
+    filters: processorData.filters,
+  };
 }

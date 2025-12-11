@@ -170,6 +170,7 @@ export interface Invoice {
   approvingSupervisor: string;
   autofillSource: string;
   contractId: FlexibleReference; // Document Reference for 'contracts' collection or string ID
+  departmentId?: string; // Path to the department document
   contractNumber: number; // Denormalized for easier querying
   contractSummary: ContractSummary;
   createdAt: Timestamp;
@@ -182,6 +183,7 @@ export interface Invoice {
   invoiceItemsTotal: number;
   invoiceNumber: string;
   invoiceTotal: number;
+  isHistorical?: boolean; // Flag for manually entered historical invoices
   pdfFileName: string;
   pdfUrl: string;
   pdfVersions: PDFVersion[];
@@ -287,6 +289,7 @@ export interface PaymentTracking {
   invoiceId: FlexibleReference; // Document Reference for 'invoices' collection or string ID
   invoiceNumber: string; // Denormalized for easier querying
   projectId: FlexibleReference; // Document Reference for 'projects' collection or string ID
+  departmentId?: string; // Path to the department document
   projectName: string; // Denormalized for easier querying
   invoiceAmount: number;
   paidAmount: number;

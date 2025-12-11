@@ -1517,6 +1517,26 @@ export async function recordPayment(paymentData: {
     const invoiceAmount = invoice?.invoiceTotal || 0;
     const currentPaidAmount = paymentData.paidAmount;
     const outstandingAmount = Math.max(0, invoiceAmount - currentPaidAmount);
+    let departmentId = invoice?.departmentId || null;
+
+    if (!departmentId && paymentData.projectId) {
+      try {
+        const projectDoc = await adminDb.collection('projects').doc(paymentData.projectId).get();
+        if (projectDoc.exists) {
+          const projectData = projectDoc.data();
+          const deptRef = projectData?.departmentId;
+          if (deptRef) {
+            if (typeof deptRef === 'object' && deptRef.path) {
+              departmentId = deptRef.path;
+            } else if (typeof deptRef === 'string') {
+              departmentId = deptRef.startsWith('departments/') ? deptRef : `departments/${deptRef}`;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching project for departmentId fallback:', e);
+      }
+    }
     
     let status: 'Pending' | 'Partial' | 'Paid' | 'Overdue' = 'Pending';
     if (currentPaidAmount >= invoiceAmount) {
@@ -1531,6 +1551,7 @@ export async function recordPayment(paymentData: {
       invoiceId: adminDb.doc(`invoices/${paymentData.invoiceId}`),
       invoiceNumber: paymentData.invoiceNumber,
       projectId: adminDb.doc(`projects/${paymentData.projectId}`),
+      ...(departmentId && { departmentId }),
       projectName: paymentData.projectName,
       invoiceAmount,
       paidAmount: currentPaidAmount,
@@ -1651,6 +1672,26 @@ export async function addPaymentEntry(args: {
     const invoice = invoiceDoc.data() as any;
     const invoiceAmount = Number(invoice?.invoiceTotal || 0);
     const dueDateTs: Timestamp | undefined = invoice?.dueDate;
+    let departmentId = invoice?.departmentId || null;
+
+    if (!departmentId && args.projectId) {
+      try {
+        const projectDoc = await adminDb.collection('projects').doc(args.projectId).get();
+        if (projectDoc.exists) {
+          const projectData = projectDoc.data();
+          const deptRef = projectData?.departmentId;
+          if (deptRef) {
+            if (typeof deptRef === 'object' && deptRef.path) {
+              departmentId = deptRef.path;
+            } else if (typeof deptRef === 'string') {
+              departmentId = deptRef.startsWith('departments/') ? deptRef : `departments/${deptRef}`;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching project for departmentId fallback:', e);
+      }
+    }
 
     // Get latest cumulative values
     const invRef = adminDb.doc(`invoices/${args.invoiceId}`);
@@ -1721,6 +1762,7 @@ export async function addPaymentEntry(args: {
       invoiceId: invRef,
       invoiceNumber: args.invoiceNumber,
       projectId: adminDb.doc(`projects/${args.projectId}`),
+      ...(departmentId && { departmentId }),
       projectName: args.projectName,
       invoiceAmount,
       paidAmount: newPaid,

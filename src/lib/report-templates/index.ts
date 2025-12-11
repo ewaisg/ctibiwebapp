@@ -7,7 +7,6 @@ import { financialReports } from './financial-reports';
 import { laborReports } from './labor-reports';
 import { projectReports } from './project-reports';
 import { complianceReports } from './compliance-reports';
-import { executiveReports } from './executive-reports';
 import type { ReportTemplate } from './types';
 
 export * from './types';
@@ -20,7 +19,6 @@ export const allReportTemplates: ReportTemplate[] = [
   ...laborReports,
   ...projectReports,
   ...complianceReports,
-  ...executiveReports,
 ];
 
 /**
@@ -41,7 +39,7 @@ export function getReportTemplate(id: string): ReportTemplate | undefined {
  * Get all report categories
  */
 export function getReportCategories(): ReportTemplate['category'][] {
-  return ['Financial', 'Labor', 'Project', 'Compliance', 'Executive', 'Operations'];
+  return ['Financial', 'Labor', 'Project', 'Compliance'];
 }
 
 /**
@@ -61,5 +59,4 @@ export {
   laborReports,
   projectReports,
   complianceReports,
-  executiveReports,
 };

@@ -693,8 +693,15 @@ export async function processPOStatusReport(filters: ReportFilters) {
       filteredProjects = filteredProjects.filter(p => p.id === filters.projectId);
     }
 
+    // Filter by status (using isComplete and isInactive fields)
     if (filters.status) {
-      filteredProjects = filteredProjects.filter(p => p.status === filters.status);
+      if (filters.status === 'active') {
+        filteredProjects = filteredProjects.filter(p => !p.isInactive && !p.isComplete);
+      } else if (filters.status === 'complete') {
+        filteredProjects = filteredProjects.filter(p => p.isComplete === true);
+      } else if (filters.status === 'inactive') {
+        filteredProjects = filteredProjects.filter(p => p.isInactive === true);
+      }
     }
 
     // Calculate PO usage (this would require fetching invoices to see how much of PO is used)
@@ -703,12 +710,12 @@ export async function processPOStatusReport(filters: ReportFilters) {
     const items = filteredProjects.map(p => ({
       projectName: p.projectName,
       poNumber: p.poNumber,
-      poAmount: p.poAmount || 0,
-      status: p.status,
-      startDate: p.startDate,
-      endDate: p.endDate,
+      poAmount: p.newPoAmount || p.originalPoAmount || 0,
+      status: p.isComplete ? 'Complete' : (p.isInactive ? 'Inactive' : 'Active'),
+      originalPoAmount: p.originalPoAmount || 0,
+      changeOrderAmount: p.changeOrderAmount || 0,
       // In a real implementation, we would sum up invoices to calculate remaining balance
-      remainingBalance: p.poAmount || 0, // Placeholder
+      remainingBalance: p.remainingPoAmount || 0,
     }));
 
     return {
@@ -741,11 +748,13 @@ export async function processBillableHours(filters: ReportFilters) {
     let timesheetsQuery: any = adminDb.collection('timesheets');
     
     // Apply date filters if present
-    if (filters.startDate) {
-      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', filters.startDate);
+    if (filters.dateFrom) {
+      const fromDate = new Date(filters.dateFrom);
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', Timestamp.fromDate(fromDate));
     }
-    if (filters.endDate) {
-      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', filters.endDate);
+    if (filters.dateTo) {
+      const toDate = new Date(filters.dateTo);
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', Timestamp.fromDate(toDate));
     }
 
     const timesheetsSnapshot = await timesheetsQuery.get();
@@ -770,8 +779,12 @@ export async function processBillableHours(filters: ReportFilters) {
     for (const ts of timesheets) {
       if (!ts.labors || !Array.isArray(ts.labors)) continue;
 
-      // Filter by employee/department if needed
-      if (filters.employeeId && extractId(ts.employeeId) !== filters.employeeId) continue;
+      // Filter by employee if needed (employeeId in timesheets is a number)
+      if (filters.employeeId) {
+        const filterEmployeeIds = Array.isArray(filters.employeeId) ? filters.employeeId : [filters.employeeId];
+        const tsEmployeeIdStr = ts.employeeId.toString();
+        if (!filterEmployeeIds.includes(tsEmployeeIdStr)) continue;
+      }
       
       // Check department via employee (would require fetching employee) - skipping for now for speed
       
@@ -834,12 +847,14 @@ export async function processEmployeeUtilization(filters: ReportFilters) {
   try {
     // Fetch timesheets
     let timesheetsQuery: any = adminDb.collection('timesheets');
-    
-    if (filters.startDate) {
-      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', filters.startDate);
+
+    if (filters.dateFrom) {
+      const fromDate = new Date(filters.dateFrom);
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '>=', Timestamp.fromDate(fromDate));
     }
-    if (filters.endDate) {
-      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', filters.endDate);
+    if (filters.dateTo) {
+      const toDate = new Date(filters.dateTo);
+      timesheetsQuery = timesheetsQuery.where('weekStartDate', '<=', Timestamp.fromDate(toDate));
     }
 
     const timesheetsSnapshot = await timesheetsQuery.get();
@@ -862,10 +877,13 @@ export async function processEmployeeUtilization(filters: ReportFilters) {
     }>();
 
     timesheets.forEach(ts => {
-      const empId = extractId(ts.employeeId);
+      const empId = ts.employeeId.toString();
       if (!empId) return;
-      
-      if (filters.employeeId && empId !== filters.employeeId) return;
+
+      if (filters.employeeId) {
+        const filterEmployeeIds = Array.isArray(filters.employeeId) ? filters.employeeId : [filters.employeeId];
+        if (!filterEmployeeIds.includes(empId)) return;
+      }
 
       const empData = employeesMap.get(empId);
       const employeeName = empData ? `${empData.firstName} ${empData.lastName}` : 'Unknown Employee';

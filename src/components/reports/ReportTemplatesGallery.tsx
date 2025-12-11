@@ -26,6 +26,9 @@ import {
   CreditCard,
   FileCheck,
   AlertCircle,
+  Building2,
+  Receipt,
+  ClipboardList,
 } from "lucide-react";
 import {
   allReportTemplates,
@@ -53,6 +56,9 @@ const iconMap: Record<string, any> = {
   FileCheck,
   AlertCircle,
   FileText,
+  Building2,
+  Receipt,
+  ClipboardList,
 };
 
 const colorMap: Record<string, string> = {
@@ -108,7 +114,6 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
     { value: "Labor", label: "Labor", count: getReportsByCategory("Labor").length + getCustomCountByCategory("Labor") },
     { value: "Project", label: "Project", count: getReportsByCategory("Project").length + getCustomCountByCategory("Project") },
     { value: "Compliance", label: "Compliance", count: getReportsByCategory("Compliance").length + getCustomCountByCategory("Compliance") },
-    { value: "Executive", label: "Executive", count: getReportsByCategory("Executive").length + getCustomCountByCategory("Executive") },
   ];
 
   return (

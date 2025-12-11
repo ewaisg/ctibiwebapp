@@ -207,7 +207,7 @@ export function PdfTemplatesClientPage({ showBackButton = false, showTitle = tru
         <div className="fixed inset-0 z-50 bg-background">
           <SyncfusionFormDesigner
             templateId={editingForm?.id}
-            existingTemplate={editingForm}
+            existingTemplate={editingForm || undefined}
             onSave={handleFormSave}
             onCancel={handleFormCancel}
           />

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { collection, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { getFirestore as getAdminFirestore, Timestamp as AdminTimestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { format, startOfDay, endOfDay, addMonths, endOfMonth } from 'date-fns';
 import { sanitizeForLog, validateInvoiceId, validateContractNumber } from '@/lib/security-utils';
@@ -666,9 +666,31 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
       // IMPORTANT: Do not persist base64 attachments in the invoice document
       const { attachedFiles, ...inputWithoutFiles } = validatedInput;
 
+      // Fetch project to get departmentId
+      let departmentPath = null;
+      if (validatedInput.projectId) {
+        try {
+          const projectSnap = await adminDb.collection('projects').doc(validatedInput.projectId).get();
+          if (projectSnap.exists) {
+            const projectData = projectSnap.data();
+            const deptRef = projectData?.departmentId;
+            if (deptRef) {
+              if (typeof deptRef === 'object' && deptRef.path) {
+                departmentPath = deptRef.path;
+              } else if (typeof deptRef === 'string') {
+                departmentPath = deptRef.startsWith('departments/') ? deptRef : `departments/${deptRef}`;
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching project for departmentId:', err);
+        }
+      }
+
       const invoiceData = {
         ...inputWithoutFiles, // excludes attachedFiles
         projectId: adminDb.doc(`projects/${validatedInput.projectId}`),
+        ...(departmentPath && { departmentId: departmentPath }),
         userId: adminDb.doc(`users/${validatedInput.userId}`),
         invoiceNumber,
         invoiceItemsTotal,
@@ -1596,4 +1618,55 @@ export async function returnInvoiceForEdits(
 
   await revalidateInvoiceViews(invoiceId);
   return { success: true, message: 'Invoice returned for edits' };
+}
+
+export async function createHistoricalInvoice(invoiceData: Partial<Invoice>, paymentStatus: string, projectName: string) {
+  if (!adminDb) {
+    return { success: false, error: 'Database connection not available' };
+  }
+
+  try {
+    // Ensure isHistorical is true
+    const dataToSave = {
+      ...invoiceData,
+      isHistorical: true,
+      createdAt: AdminTimestamp.now(),
+    };
+
+    // Convert any Date objects or strings to Timestamps if needed
+    // The incoming invoiceData might have Timestamps or Dates depending on how it's passed
+    // But since it's coming from a client component via server action, it will be serialized.
+    // Dates will be strings or numbers. Timestamps will be objects.
+    
+    // We need to ensure the fields are correct for Firestore
+    if (typeof dataToSave.fromDate === 'string') dataToSave.fromDate = AdminTimestamp.fromDate(new Date(dataToSave.fromDate));
+    if (typeof dataToSave.toDate === 'string') dataToSave.toDate = AdminTimestamp.fromDate(new Date(dataToSave.toDate));
+    if (typeof dataToSave.dueDate === 'string') dataToSave.dueDate = AdminTimestamp.fromDate(new Date(dataToSave.dueDate));
+    if (typeof dataToSave.approvedAt === 'string') dataToSave.approvedAt = AdminTimestamp.fromDate(new Date(dataToSave.approvedAt));
+
+    const docRef = await adminDb.collection('invoices').add(dataToSave);
+
+    // Create Payment Tracking record
+    const paymentData = {
+      invoiceId: docRef.id,
+      invoiceNumber: dataToSave.invoiceNumber || '',
+      projectId: dataToSave.projectId || '',
+      departmentId: dataToSave.departmentId || '',
+      projectName: projectName,
+      invoiceAmount: dataToSave.invoiceTotal || 0,
+      paidAmount: paymentStatus === 'Paid' ? (dataToSave.invoiceTotal || 0) : 0,
+      outstandingAmount: paymentStatus === 'Paid' ? 0 : (dataToSave.invoiceTotal || 0),
+      status: paymentStatus,
+      dueDate: dataToSave.dueDate || AdminTimestamp.now(),
+      createdAt: AdminTimestamp.now(),
+      updatedAt: AdminTimestamp.now(),
+    };
+
+    await adminDb.collection('payment_tracking').add(paymentData);
+
+    return { success: true, id: docRef.id };
+  } catch (error) {
+    console.error('Error creating historical invoice:', error);
+    return { success: false, error: 'Failed to create historical invoice' };
+  }
 }

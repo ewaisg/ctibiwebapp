@@ -50,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NewInvoiceDialog } from "@/components/new-invoice-dialog";
+import { HistoricalInvoiceDialog } from "@/components/historical-invoice-dialog";
 import { DepartmentalCompilationDialog } from "@/components/departmental-compilation-dialog";
 import { OverallProjectsSummaryDialog } from "@/components/overall-projects-summary-dialog";
 import type { Invoice, Project, Department, Employee, Company, User, Contract, TemplateFieldMapping } from "@/types";
@@ -66,6 +67,35 @@ import { cn } from "@/lib/utils";
 import { PaymentDrawer } from "@/components/payment-drawer";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { TrendlineChart } from "@/components/charts/TrendlineChart";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { BarChart3 } from "lucide-react";
+import { L10n } from '@syncfusion/ej2-base';
+import { 
+  GridComponent, 
+  ColumnsDirective, 
+  ColumnDirective, 
+  Page, 
+  Inject, 
+  Sort, 
+  Toolbar, 
+  Filter, 
+  Edit as GridEdit, 
+  FilterSettingsModel, 
+  EditSettingsModel, 
+  ToolbarItems,
+  CommandColumn,
+  CommandModel
+} from '@syncfusion/ej2-react-grids';
+
+L10n.load({
+    'en-US': {
+        'pager': {
+            'currentPageInfo': '',
+            'totalItemsInfo': '{1} to {2} of {0}',
+        }
+    }
+});
 
 // Helpers to normalize date values to local YYYY-MM-DD and back to Date at local midnight
 const toYMD = (d: Date): string => {
@@ -209,6 +239,7 @@ export function InvoicesClientPage({
   const [openSummary, setOpenSummary] = useState(false);
   const [openBillingPacket, setOpenBillingPacket] = useState(false);
   const { toast } = useToast();
+  const [showChart, setShowChart] = useState(false);
 
   // Cover page wizard state
   const [coverDeptId, setCoverDeptId] = useState<string>("");
@@ -391,6 +422,46 @@ export function InvoicesClientPage({
       approvedInvoices,
       totalAmount,
     };
+  }, [filteredInvoices]);
+
+  // Calculate chart data (monthly totals)
+  const chartData = useMemo(() => {
+    const monthlyData = new Map<string, number>();
+    
+    filteredInvoices.forEach(inv => {
+      if (!inv.invoiceTotal) return;
+      
+      // Try to find a date to group by
+      // Prioritize explicit dates over creation date
+      // (inv as any).date is for historical invoices that might have it saved directly
+      const dateStr = inv.toDate || inv.dueDate || inv.fromDate || (inv as any).date || (inv as any).createdAt;
+      if (!dateStr) return;
+      
+      let date: Date;
+      if (typeof dateStr === 'object' && 'seconds' in dateStr) {
+         date = new Date(dateStr.seconds * 1000);
+      } else if (dateStr instanceof Date) {
+         date = dateStr;
+      } else {
+         date = new Date(dateStr);
+      }
+
+      if (isNaN(date.getTime())) return;
+      
+      // Format as "MMM YYYY" (e.g., "Jan 2024")
+      const key = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      
+      monthlyData.set(key, (monthlyData.get(key) || 0) + inv.invoiceTotal);
+    });
+
+    // Convert to array and sort chronologically
+    return Array.from(monthlyData.entries())
+      .map(([Period, Amount]) => ({ Period, Amount }))
+      .sort((a, b) => {
+        const dateA = new Date(a.Period);
+        const dateB = new Date(b.Period);
+        return dateA.getTime() - dateB.getTime();
+      });
   }, [filteredInvoices]);
 
   const formatCurrency = (amount: number) => {
@@ -1201,6 +1272,17 @@ export function InvoicesClientPage({
               departments={departments}
             />
           )}
+          <HistoricalInvoiceDialog 
+            projects={projects}
+            departments={departments}
+            onInvoiceCreated={() => {
+              // Optional: Trigger a refresh if needed, but Firestore listener should handle it
+              toast({
+                title: "Success",
+                description: "Historical invoice added.",
+              });
+            }}
+          />
           <NewInvoiceDialog 
             projects={projects}
             departments={departments}
@@ -1484,6 +1566,31 @@ export function InvoicesClientPage({
         </DialogContent>
       </Dialog>
 
+      {/* Trend Analysis Chart */}
+      <Collapsible
+        open={showChart}
+        onOpenChange={setShowChart}
+        className="space-y-2"
+      >
+        <div className="flex items-center justify-between px-1">
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              {showChart ? "Hide Trend Analysis" : "Show Trend Analysis"}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent className="space-y-2">
+          <TrendlineChart 
+            data={chartData} 
+            xName="Period" 
+            yName="Amount" 
+            title="Invoice Trends"
+            yAxisTitle="Amount ($)"
+          />
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -1664,118 +1771,113 @@ export function InvoicesClientPage({
         </CardHeader>
         <CardContent>
           {filteredInvoices.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedInvoices.length > 0 && selectedInvoices.length === filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length}
-                      onChange={toggleSelectAll}
-                      disabled={filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length === 0}
-                      className="rounded"
+            <GridComponent
+                dataSource={filteredInvoices}
+                allowPaging={true}
+                pageSettings={{ pageSize: 10 }}
+                allowSorting={true}
+                allowFiltering={true}
+                filterSettings={{ type: 'Menu' }}
+            >
+                <ColumnsDirective>
+                    <ColumnDirective
+                        headerTemplate={() => (
+                            <input
+                                type="checkbox"
+                                checked={selectedInvoices.length > 0 && selectedInvoices.length === filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length}
+                                onChange={toggleSelectAll}
+                                disabled={filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length === 0}
+                                className="rounded"
+                            />
+                        )}
+                        template={(props: any) => (
+                            <input
+                                type="checkbox"
+                                checked={props.id ? selectedInvoices.includes(props.id) : false}
+                                onChange={() => props.id && toggleInvoiceSelection(props.id)}
+                                disabled={!['draft', 'submitted', 'approved'].includes(props.status) || !props.id}
+                                className="rounded"
+                            />
+                        )}
+                        width='50'
                     />
-                  </TableHead>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Submitter</TableHead>
-                  {user?.role !== 'Subconsultant' && <TableHead>Company</TableHead>}
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  {/* New: Payment Status column */}
-                  <TableHead>Payment Status</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredInvoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={invoice.id ? selectedInvoices.includes(invoice.id) : false}
-                        onChange={() => invoice.id && toggleInvoiceSelection(invoice.id)}
-                        disabled={!['draft', 'submitted', 'approved'].includes(invoice.status) || !invoice.id}
-                        className="rounded"
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {invoice.invoiceNumber || `INV-${invoice.id?.substring(0, 8) || 'DRAFT'}`}
-                    </TableCell>
-                    <TableCell>{invoice.projectName}</TableCell>
-                    <TableCell>{invoice.submitterName}</TableCell>
+                    <ColumnDirective field='invoiceNumber' headerText='Invoice #' width='120' template={(props: any) => (
+                        <span className="font-medium">
+                            {props.invoiceNumber || `INV-${props.id?.substring(0, 8) || 'DRAFT'}`}
+                        </span>
+                    )}/>
+                    <ColumnDirective field='projectName' headerText='Project' width='150'/>
+                    <ColumnDirective field='submitterName' headerText='Submitter' width='150'/>
                     {user?.role !== 'Subconsultant' && (
-                      <TableCell>{invoice.companyName}</TableCell>
+                        <ColumnDirective field='companyName' headerText='Company' width='150'/>
                     )}
-                    <TableCell className="font-semibold">
-                      {formatCurrency(invoice.invoiceTotal || 0)}
-                    </TableCell>
-                    {/* Workflow Status */}
-                    <TableCell>
-                      <div className="flex items-center gap-2 max-w-[420px]">
-                        <Badge 
-                          variant="outline" 
-                          className={statusColors[invoice.status] || statusColors.draft}
-                        >
-                          {invoice.status}
-                        </Badge>
-                        {invoice.status === 'rejected' && invoice.rejectedNotes ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={invoice.rejectedNotes}>
-                            <AlertTriangle className="h-3 w-3" aria-hidden />
-                            {invoice.rejectedNotes}
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    {/* New: Payment Status */}
-                    <TableCell>
-                      {invoice.paymentStatus ? (
-                        <Badge
-                          variant="outline"
-                          className={paymentStatusColors[invoice.paymentStatus] || ''}
-                        >
-                          {invoice.paymentStatus === 'partially_paid' ? 'Partially Paid' : (
-                            invoice.paymentStatus === 'write_off' ? 'Write-Off' : invoice.paymentStatus
-                          )}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">--</span>
-                      )}
-                    </TableCell>
-                    {/* Due Date and Actions remain unchanged */}
-                    <TableCell>{formatDate(invoice.dueDate)}</TableCell>
-                    <TableCell>
+                    <ColumnDirective field='invoiceTotal' headerText='Amount' width='120' template={(props: any) => (
+                        <span className="font-semibold">
+                            {formatCurrency(props.invoiceTotal || 0)}
+                        </span>
+                    )}/>
+                    <ColumnDirective field='status' headerText='Status' width='130' template={(props: any) => (
+                        <div className="flex items-center gap-2 max-w-[420px]">
+                            <Badge 
+                                variant="outline" 
+                                className={statusColors[props.status] || statusColors.draft}
+                            >
+                                {props.status}
+                            </Badge>
+                            {props.status === 'rejected' && props.rejectedNotes ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={props.rejectedNotes}>
+                                    <AlertTriangle className="h-3 w-3" aria-hidden />
+                                    {props.rejectedNotes}
+                                </span>
+                            ) : null}
+                        </div>
+                    )}/>
+                    <ColumnDirective field='paymentStatus' headerText='Payment Status' width='130' template={(props: any) => (
+                        props.paymentStatus ? (
+                            <Badge
+                                variant="outline"
+                                className={paymentStatusColors[props.paymentStatus] || ''}
+                            >
+                                {props.paymentStatus === 'partially_paid' ? 'Partially Paid' : (
+                                    props.paymentStatus === 'write_off' ? 'Write-Off' : props.paymentStatus
+                                )}
+                            </Badge>
+                        ) : (
+                            <span className="text-xs text-muted-foreground">--</span>
+                        )
+                    )}/>
+                    <ColumnDirective field='dueDate' headerText='Due Date' width='120' template={(props: any) => formatDate(props.dueDate)}/>
+                    <ColumnDirective headerText='Actions' width='100' template={(props: any) => (
                       <DropdownMenu>
                                                <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={isDeleting || actionLoadingId === invoice.id}>
+                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={isDeleting || actionLoadingId === props.id}>
                             <span className="sr-only">Open menu</span>
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewInvoice(invoice)}>
+                          <DropdownMenuItem onClick={() => handleViewInvoice(props)}>
                             <Eye className="mr-2 h-4 w-4" />
                             View/Edit
                           </DropdownMenuItem>
 
                           {/* Submit/Resubmit for author */}
-                          {canSubmit(invoice) && invoice.id && (
-                            <DropdownMenuItem onClick={() => handleSubmitForReview(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                          {canSubmit(props) && props.id && (
+                            <DropdownMenuItem onClick={() => handleSubmitForReview(props.id!)} disabled={actionLoadingId === props.id}>
                               <Send className="mr-2 h-4 w-4" />
-                              {invoice.status === 'rejected' ? 'Resubmit' : 'Submit for Review'}
+                              {props.status === 'rejected' ? 'Resubmit' : 'Submit for Review'}
                             </DropdownMenuItem>
                           )}
 
                           {/* Approve/Reject for Admin/Prime */}
-                          {canApprove(invoice) && invoice.id && (
-                            <DropdownMenuItem onClick={() => handleApprove(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                          {canApprove(props) && props.id && (
+                            <DropdownMenuItem onClick={() => handleApprove(props.id!)} disabled={actionLoadingId === props.id}>
                               <CheckCircle className="mr-2 h-4 w-4" />
                               Approve
                             </DropdownMenuItem>
                           )}
-                          {canReject(invoice) && invoice.id && (
-                            <DropdownMenuItem onClick={() => openRejectDialog(invoice.id!, invoice.status)} disabled={actionLoadingId === invoice.id}>
+                          {canReject(props) && props.id && (
+                            <DropdownMenuItem onClick={() => openRejectDialog(props.id!, props.status)} disabled={actionLoadingId === props.id}>
                               <XCircle className="mr-2 h-4 w-4" />
                               Reject...
                             </DropdownMenuItem>
@@ -1783,23 +1885,23 @@ export function InvoicesClientPage({
 
                           {/* PDF actions */}
                           {/* Restrict download to Admin/Prime */}
-                          {isAdminOrPrime && invoice.pdfUrl ? (
+                          {isAdminOrPrime && props.pdfUrl ? (
                             <DropdownMenuItem onClick={() => {
-                              const sanitizedUrl = invoice.pdfUrl?.replace(/[<>"']/g, '');
+                              const sanitizedUrl = props.pdfUrl?.replace(/[<>"']/g, '');
                               if (sanitizedUrl) window.open(sanitizedUrl, '_blank');
                             }}>
                               <Download className="mr-2 h-4 w-4" />
                               Download Generated PDF
                             </DropdownMenuItem>
                           ) : null}
-                          {canGeneratePdf(invoice) && invoice.id && (
-                            <DropdownMenuItem onClick={() => handleGenerateApprovedPdf(invoice.id!)} disabled={actionLoadingId === invoice.id}>
+                          {canGeneratePdf(props) && props.id && (
+                            <DropdownMenuItem onClick={() => handleGenerateApprovedPdf(props.id!)} disabled={actionLoadingId === props.id}>
                               <RefreshCw className="mr-2 h-4 w-4" />
                               Generate/ReGenerate PDF
                             </DropdownMenuItem>
                           )}
-                          {canRestorePdf(invoice) && (
-                            <DropdownMenuItem onClick={() => openRestoreDialog(invoice)} disabled={actionLoadingId === invoice.id}>
+                          {canRestorePdf(props) && (
+                            <DropdownMenuItem onClick={() => openRestoreDialog(props)} disabled={actionLoadingId === props.id}>
                               <History className="mr-2 h-4 w-4" />
                               Restore PDF Version...
                             </DropdownMenuItem>
@@ -1808,18 +1910,18 @@ export function InvoicesClientPage({
                           {isAdminOrPrime && (
                             <>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => openPaymentDrawer(invoice)}>
+                              <DropdownMenuItem onClick={() => openPaymentDrawer(props)}>
                                 <DollarSign className="mr-2 h-4 w-4" /> Manage Payment...
                               </DropdownMenuItem>
                             </>
                           )}
 
                           <DropdownMenuSeparator />
-                          {['draft', 'submitted', 'approved'].includes(invoice.status) && invoice.id && (
+                          {['draft', 'submitted', 'approved'].includes(props.status) && props.id && (
                             <DropdownMenuItem 
                               className="text-destructive"
-                              onClick={() => invoice.id && confirmDeleteInvoice(invoice.id, invoice.status)}
-                              disabled={isDeleting || actionLoadingId === invoice.id}
+                              onClick={() => props.id && confirmDeleteInvoice(props.id, props.status)}
+                              disabled={isDeleting || actionLoadingId === props.id}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete
@@ -1827,11 +1929,10 @@ export function InvoicesClientPage({
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    )}/>
+                </ColumnsDirective>
+                <Inject services={[Page, Sort, Filter, Toolbar]} />
+            </GridComponent>
           ) : (
             <div className="py-8">
               {debouncedSearchTerm || statusFilter !== 'all' || paymentStatusFilter !== 'all' || companyFilter !== 'all' || projectFilter !== 'all' || dateFrom || dateTo ? (
@@ -1858,6 +1959,16 @@ export function InvoicesClientPage({
                     >
                       Clear Filters
                     </Button>
+                    <HistoricalInvoiceDialog 
+                      projects={projects}
+                      departments={departments}
+                      onInvoiceCreated={() => {
+                        toast({
+                          title: "Success",
+                          description: "Historical invoice added.",
+                        });
+                      }}
+                    />
                     <NewInvoiceDialog
                       projects={projects}
                       departments={departments}
@@ -1876,10 +1987,22 @@ export function InvoicesClientPage({
                       : "No invoices have been created yet. Create your first invoice to get started tracking payments and approvals."
                     }
                   </p>
-                  <NewInvoiceDialog
-                    projects={projects}
-                    departments={departments}
-                  />
+                  <div className="flex gap-3 justify-center">
+                    <HistoricalInvoiceDialog 
+                      projects={projects}
+                      departments={departments}
+                      onInvoiceCreated={() => {
+                        toast({
+                          title: "Success",
+                          description: "Historical invoice added.",
+                        });
+                      }}
+                    />
+                    <NewInvoiceDialog
+                      projects={projects}
+                      departments={departments}
+                    />
+                  </div>
                 </div>
               )}
             </div>

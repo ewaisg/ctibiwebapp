@@ -9,7 +9,9 @@ import {
   generateInvoicePdf as _generateInvoicePdf,
   restoreInvoicePdfVersion as _restoreInvoicePdfVersion,
   getInvoiceByIdOrNumber as _getInvoiceByIdOrNumber,
+  createHistoricalInvoice as _createHistoricalInvoice,
 } from '../invoicing/actions';
+
 
 export async function deleteInvoice(...args: Parameters<typeof _deleteInvoice>): Promise<ReturnType<typeof _deleteInvoice> extends Promise<infer R> ? R : never> {
   return _deleteInvoice(...args) as any;
@@ -41,4 +43,8 @@ export async function restoreInvoicePdfVersion(...args: Parameters<typeof _resto
 
 export async function getInvoiceByIdOrNumber(...args: Parameters<typeof _getInvoiceByIdOrNumber>): Promise<ReturnType<typeof _getInvoiceByIdOrNumber> extends Promise<infer R> ? R : never> {
   return _getInvoiceByIdOrNumber(...args) as any;
+}
+
+export async function createHistoricalInvoice(...args: Parameters<typeof _createHistoricalInvoice>): Promise<ReturnType<typeof _createHistoricalInvoice> extends Promise<infer R> ? R : never> {
+  return _createHistoricalInvoice(...args) as any;
 }

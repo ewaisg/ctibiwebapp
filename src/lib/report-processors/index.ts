@@ -5,11 +5,10 @@
 
 // Financial Reports
 export {
-  processRevenueByDepartment,
-  processOutstandingInvoices,
-  processRevenueByProject,
-  processPaymentHistory,
-  processProfitabilityAnalysis,
+  processBillingReportByDepartment,
+  processBillingReportByProject,
+  processPaymentReportByDepartment,
+  processPaymentReportByProject,
 } from './financial-processors';
 
 // Labor Reports
@@ -36,16 +35,8 @@ export {
   processMWBECompliance,
   processSubConsultantBreakdown,
   processDBEParticipation,
-  processCertifiedPayroll,
 } from './compliance-processors';
 
-// Executive Reports
-export {
-  processCompanyWideSummary,
-  processKPIDashboard,
-  processTrendAnalysis,
-  processDepartmentComparison,
-} from './executive-processors';
 
 /**
  * Processor function registry
@@ -53,11 +44,10 @@ export {
  */
 export const PROCESSOR_REGISTRY: Record<string, (filters: any) => Promise<any>> = {
   // Financial
-  processRevenueByDepartment: async (filters) => (await import('./financial-processors')).processRevenueByDepartment(filters),
-  processOutstandingInvoices: async (filters) => (await import('./financial-processors')).processOutstandingInvoices(filters),
-  processRevenueByProject: async (filters) => (await import('./financial-processors')).processRevenueByProject(filters),
-  processPaymentHistory: async (filters) => (await import('./financial-processors')).processPaymentHistory(filters),
-  processProfitabilityAnalysis: async (filters) => (await import('./financial-processors')).processProfitabilityAnalysis(filters),
+  processBillingReportByDepartment: async (filters) => (await import('./financial-processors')).processBillingReportByDepartment(filters),
+  processBillingReportByProject: async (filters) => (await import('./financial-processors')).processBillingReportByProject(filters),
+  processPaymentReportByDepartment: async (filters) => (await import('./financial-processors')).processPaymentReportByDepartment(filters),
+  processPaymentReportByProject: async (filters) => (await import('./financial-processors')).processPaymentReportByProject(filters),
 
   // Labor
   processDirectLaborHours: async (filters) => (await import('./labor-processors')).processDirectLaborHours(filters),
@@ -77,13 +67,6 @@ export const PROCESSOR_REGISTRY: Record<string, (filters: any) => Promise<any>> 
   processMWBECompliance: async (filters) => (await import('./compliance-processors')).processMWBECompliance(filters),
   processSubConsultantBreakdown: async (filters) => (await import('./compliance-processors')).processSubConsultantBreakdown(filters),
   processDBEParticipation: async (filters) => (await import('./compliance-processors')).processDBEParticipation(filters),
-  processCertifiedPayroll: async (filters) => (await import('./compliance-processors')).processCertifiedPayroll(filters),
-
-  // Executive
-  processCompanyWideSummary: async (filters) => (await import('./executive-processors')).processCompanyWideSummary(filters),
-  processKPIDashboard: async (filters) => (await import('./executive-processors')).processKPIDashboard(filters),
-  processTrendAnalysis: async (filters) => (await import('./executive-processors')).processTrendAnalysis(filters),
-  processDepartmentComparison: async (filters) => (await import('./executive-processors')).processDepartmentComparison(filters),
 };
 
 /**

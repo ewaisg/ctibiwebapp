@@ -1113,15 +1113,21 @@ export async function deleteInvoice(invoiceId: string, requesterUid: string) {
       : inv.userId;
 
     const status = String(inv.status || '').toLowerCase();
+    const isHistorical = inv.isHistorical === true;
 
     // Authorization rules
     if (role === 'Admin' || role === 'Prime') {
-      // No restrictions for Admin/Prime
+      // No restrictions for Admin/Prime (can delete any invoice including historical)
     } else if (role === 'Subconsultant') {
-      // Must be the author and invoice in a deletable state for subconsultant
-      const deletableStatuses = new Set(['draft', 'rejected', 'revision_requested']);
-      if (requesterUid !== invAuthorId || !deletableStatuses.has(status)) {
-        throw new Error('You do not have permission to delete this invoice');
+      // Historical invoices can be deleted by the author regardless of status
+      // Regular invoices must be the author and in a deletable state
+      if (isHistorical && requesterUid === invAuthorId) {
+        // Allow deletion of historical invoices by author
+      } else {
+        const deletableStatuses = new Set(['draft', 'rejected', 'revision_requested']);
+        if (requesterUid !== invAuthorId || !deletableStatuses.has(status)) {
+          throw new Error('You do not have permission to delete this invoice');
+        }
       }
     } else {
       throw new Error('You do not have permission to delete this invoice');
@@ -1639,10 +1645,10 @@ export async function createHistoricalInvoice(invoiceData: Partial<Invoice>, pay
     // Dates will be strings or numbers. Timestamps will be objects.
     
     // We need to ensure the fields are correct for Firestore
-    if (typeof dataToSave.fromDate === 'string') dataToSave.fromDate = AdminTimestamp.fromDate(new Date(dataToSave.fromDate));
-    if (typeof dataToSave.toDate === 'string') dataToSave.toDate = AdminTimestamp.fromDate(new Date(dataToSave.toDate));
-    if (typeof dataToSave.dueDate === 'string') dataToSave.dueDate = AdminTimestamp.fromDate(new Date(dataToSave.dueDate));
-    if (typeof dataToSave.approvedAt === 'string') dataToSave.approvedAt = AdminTimestamp.fromDate(new Date(dataToSave.approvedAt));
+    if (typeof dataToSave.fromDate === 'string') dataToSave.fromDate = AdminTimestamp.fromDate(new Date(dataToSave.fromDate)) as any;
+    if (typeof dataToSave.toDate === 'string') dataToSave.toDate = AdminTimestamp.fromDate(new Date(dataToSave.toDate)) as any;
+    if (typeof dataToSave.dueDate === 'string') dataToSave.dueDate = AdminTimestamp.fromDate(new Date(dataToSave.dueDate)) as any;
+    if (typeof dataToSave.approvedAt === 'string') dataToSave.approvedAt = AdminTimestamp.fromDate(new Date(dataToSave.approvedAt)) as any;
 
     const docRef = await adminDb.collection('invoices').add(dataToSave);
 

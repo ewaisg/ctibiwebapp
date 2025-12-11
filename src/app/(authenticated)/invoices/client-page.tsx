@@ -424,19 +424,17 @@ export function InvoicesClientPage({
     };
   }, [filteredInvoices]);
 
-  // Calculate chart data (monthly totals)
+  // Calculate chart data (monthly totals) - Use toDate as it represents the billing month
   const chartData = useMemo(() => {
-    const monthlyData = new Map<string, number>();
-    
+    const monthlyData = new Map<string, { amount: number; sortKey: number }>();
+
     filteredInvoices.forEach(inv => {
       if (!inv.invoiceTotal) return;
-      
-      // Try to find a date to group by
-      // Prioritize explicit dates over creation date
-      // (inv as any).date is for historical invoices that might have it saved directly
-      const dateStr = inv.toDate || inv.dueDate || inv.fromDate || (inv as any).date || (inv as any).createdAt;
+
+      // Use toDate as primary field since it represents the billing month
+      const dateStr = inv.toDate;
       if (!dateStr) return;
-      
+
       let date: Date;
       if (typeof dateStr === 'object' && 'seconds' in dateStr) {
          date = new Date(dateStr.seconds * 1000);
@@ -447,21 +445,27 @@ export function InvoicesClientPage({
       }
 
       if (isNaN(date.getTime())) return;
-      
+
       // Format as "MMM YYYY" (e.g., "Jan 2024")
       const key = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      
-      monthlyData.set(key, (monthlyData.get(key) || 0) + inv.invoiceTotal);
+
+      // Store the timestamp for proper sorting
+      const existing = monthlyData.get(key);
+      if (existing) {
+        existing.amount += inv.invoiceTotal;
+      } else {
+        monthlyData.set(key, {
+          amount: inv.invoiceTotal,
+          sortKey: date.getTime()
+        });
+      }
     });
 
-    // Convert to array and sort chronologically
+    // Convert to array and sort chronologically by actual timestamp (oldest to newest)
     return Array.from(monthlyData.entries())
-      .map(([Period, Amount]) => ({ Period, Amount }))
-      .sort((a, b) => {
-        const dateA = new Date(a.Period);
-        const dateB = new Date(b.Period);
-        return dateA.getTime() - dateB.getTime();
-      });
+      .map(([Period, data]) => ({ Period, Amount: data.amount, sortKey: data.sortKey }))
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .map(({ Period, Amount }) => ({ Period, Amount }));
   }, [filteredInvoices]);
 
   const formatCurrency = (amount: number) => {
@@ -1272,9 +1276,13 @@ export function InvoicesClientPage({
               departments={departments}
             />
           )}
-          <HistoricalInvoiceDialog 
+          <HistoricalInvoiceDialog
             projects={projects}
             departments={departments}
+            contracts={contracts || []}
+            companies={companies || []}
+            users={users || []}
+            currentUser={user || undefined}
             onInvoiceCreated={() => {
               // Optional: Trigger a refresh if needed, but Firestore listener should handle it
               toast({
@@ -1917,8 +1925,8 @@ export function InvoicesClientPage({
                           )}
 
                           <DropdownMenuSeparator />
-                          {['draft', 'submitted', 'approved'].includes(props.status) && props.id && (
-                            <DropdownMenuItem 
+                          {(props.isHistorical || ['draft', 'submitted', 'approved'].includes(props.status)) && props.id && (
+                            <DropdownMenuItem
                               className="text-destructive"
                               onClick={() => props.id && confirmDeleteInvoice(props.id, props.status)}
                               disabled={isDeleting || actionLoadingId === props.id}
@@ -1959,9 +1967,13 @@ export function InvoicesClientPage({
                     >
                       Clear Filters
                     </Button>
-                    <HistoricalInvoiceDialog 
+                    <HistoricalInvoiceDialog
                       projects={projects}
                       departments={departments}
+                      contracts={contracts || []}
+                      companies={companies || []}
+                      users={users || []}
+                      currentUser={user || undefined}
                       onInvoiceCreated={() => {
                         toast({
                           title: "Success",
@@ -1988,9 +2000,13 @@ export function InvoicesClientPage({
                     }
                   </p>
                   <div className="flex gap-3 justify-center">
-                    <HistoricalInvoiceDialog 
+                    <HistoricalInvoiceDialog
                       projects={projects}
                       departments={departments}
+                      contracts={contracts || []}
+                      companies={companies || []}
+                      users={users || []}
+                      currentUser={user || undefined}
                       onInvoiceCreated={() => {
                         toast({
                           title: "Success",

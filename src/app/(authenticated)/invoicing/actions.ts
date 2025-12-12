@@ -815,6 +815,18 @@ export async function updateInvoiceDetails(invoiceId: string, input: UpdateInvoi
     };
 
     const projectId = ensureId(validatedInput.projectId, 'projectId');
+
+    // Safety: do not allow moving an already-approved invoice to a different project,
+    // as that would require rolling back and re-applying multiple rollups.
+    if (currentStatus === 'approved') {
+      const existingProjectId = typeof (existing as any).projectId === 'object' && (existing as any).projectId && typeof (existing as any).projectId.id === 'string'
+        ? (existing as any).projectId.id
+        : String((existing as any).projectId || '');
+      if (existingProjectId && existingProjectId !== projectId) {
+        return { success: false, error: 'Approved invoices cannot change project. Create a new invoice instead.' };
+      }
+    }
+
     const fromDate = new Date(validatedInput.fromDate);
     const toDate = new Date(validatedInput.toDate);
     const dueDate = new Date(validatedInput.dueDate);
@@ -831,6 +843,7 @@ export async function updateInvoiceDetails(invoiceId: string, input: UpdateInvoi
     const invoiceItemsTotal = validatedInput.invoiceItems.reduce((sum, item) => sum + item.amount, 0);
     const reimbursableExpensesTotal = validatedInput.reimbursableExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
     const invoiceTotal = invoiceItemsTotal + reimbursableExpensesTotal;
+    const invoiceHours = validatedInput.invoiceItems.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
 
     const firstItem = validatedInput.invoiceItems[0];
     let submitterCompanyRef: FirebaseFirestore.DocumentReference | null = null;
@@ -955,7 +968,63 @@ export async function updateInvoiceDetails(invoiceId: string, input: UpdateInvoi
       }
     }
 
-    await invoiceRef.update(updates);
+    // If Prime/Admin edits an already-approved invoice, keep project rollups consistent
+    // by applying only the delta between previous approved totals/hours and the new totals/hours.
+    if (currentStatus === 'approved' && isAdminOrPrime) {
+      await adminDb.runTransaction(async (t) => {
+        const invSnap = await t.get(invoiceRef);
+        if (!invSnap.exists) throw new Error('Invoice not found');
+        const invNow = invSnap.data() as any;
+
+        const prevTotal = Number(invNow.invoiceTotal || 0);
+        const prevHours = Array.isArray(invNow.invoiceItems)
+          ? invNow.invoiceItems.reduce((s: number, it: any) => s + (Number(it?.hours) || 0), 0)
+          : 0;
+
+        const deltaTotal = Number(invoiceTotal) - prevTotal;
+        const deltaHours = Number(invoiceHours) - prevHours;
+
+        const projectRef = adminDb.collection('projects').doc(projectId);
+        const projectSnap = await t.get(projectRef);
+        if (!projectSnap.exists) throw new Error('Project not found');
+        const proj = projectSnap.data() as any;
+
+        const prevUsed = Number(proj.previouslyInvoicedAmount || 0);
+        const prevUsedHours = Number(proj.usedHours || 0);
+        const orig = Number(proj.originalPoAmount || 0);
+        const co = Number(proj.changeOrderAmount || 0);
+        const newPo = Number(proj.newPoAmount || 0);
+        const capacity = newPo > 0 ? newPo : (orig + co);
+
+        const nextPreviouslyInvoiced = Math.max(0, prevUsed + deltaTotal);
+        const nextUsedHours = Math.max(0, prevUsedHours + deltaHours);
+        const nextRemainingPo = Math.max(0, capacity - nextPreviouslyInvoiced);
+        const nextRemainingHours = Math.max(0, Number(proj.budgetedHours || 0) - nextUsedHours);
+
+        t.update(projectRef, {
+          previouslyInvoicedAmount: nextPreviouslyInvoiced,
+          usedHours: nextUsedHours,
+          remainingPoAmount: nextRemainingPo,
+          remainingHours: nextRemainingHours,
+        });
+
+        const existingApprovalSnapshot = invNow.approvalSnapshot as any;
+        const nextApprovalSnapshot = existingApprovalSnapshot
+          ? { ...existingApprovalSnapshot, total: invoiceTotal, hours: invoiceHours }
+          : {
+              total: invoiceTotal,
+              hours: invoiceHours,
+              createdAt: AdminTs.now(),
+              approvedBy: invNow.approvedBy || validatedInput.userId,
+              approvedByName: invNow.approvedByName || 'Unknown',
+            };
+
+        t.update(invoiceRef, { ...updates, approvalSnapshot: nextApprovalSnapshot });
+      });
+    } else {
+      await invoiceRef.update(updates);
+    }
+
     await revalidateInvoiceViews(validatedInvoiceId);
 
     const serializedUploads: UploadedFileResponse[] = Array.isArray(uploadedFiles)
@@ -1257,7 +1326,29 @@ export async function submitInvoiceForReview(invoiceId: string, authorUid: strin
       userName: displayName || 'Unknown',
     } as any);
 
-    t.update(invoiceRef, { status: nextStatus, history, rejectedNotes: nextStatus === 'resubmitted' ? null : (inv as any).rejectedNotes ?? null });
+    const invoiceItems = Array.isArray((inv as any).invoiceItems) ? (inv as any).invoiceItems : [];
+    const reimbursableExpenses = Array.isArray((inv as any).reimbursableExpenses) ? (inv as any).reimbursableExpenses : [];
+    const invoiceItemsTotal = Number((inv as any).invoiceItemsTotal || 0);
+    const reimbursableExpensesTotal = Number((inv as any).reimbursableExpensesTotal || 0);
+    const invoiceTotal = Number((inv as any).invoiceTotal || (invoiceItemsTotal + reimbursableExpensesTotal) || 0);
+
+    const submittedSnapshot = {
+      capturedAt: nowTs(),
+      capturedBy: (inv as any).userId || authorUid,
+      capturedByName: (inv as any).submitterName || displayName || 'Unknown',
+      invoiceItems,
+      reimbursableExpenses,
+      invoiceItemsTotal,
+      reimbursableExpensesTotal,
+      invoiceTotal,
+    };
+
+    t.update(invoiceRef, {
+      status: nextStatus,
+      history,
+      rejectedNotes: nextStatus === 'resubmitted' ? null : (inv as any).rejectedNotes ?? null,
+      submittedSnapshot,
+    });
   });
 
   await notifyAdminsPrimes('invoice-submitted', { invoiceId, by: authorUid });
@@ -1305,6 +1396,20 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
       approvedByName: displayName || 'Unknown',
     };
 
+    const needsSubmittedSnapshot = !(inv as any).submittedSnapshot;
+    const submittedSnapshot = needsSubmittedSnapshot
+      ? {
+          capturedAt: nowTs(),
+          capturedBy: (inv as any).userId || null,
+          capturedByName: (inv as any).submitterName || 'Unknown',
+          invoiceItems: Array.isArray((inv as any).invoiceItems) ? (inv as any).invoiceItems : [],
+          reimbursableExpenses: Array.isArray((inv as any).reimbursableExpenses) ? (inv as any).reimbursableExpenses : [],
+          invoiceItemsTotal: Number((inv as any).invoiceItemsTotal || 0),
+          reimbursableExpensesTotal: Number((inv as any).reimbursableExpensesTotal || 0),
+          invoiceTotal: Number((inv as any).invoiceTotal || 0),
+        }
+      : undefined;
+
     // Apply project rollups
     const projectId = extractId(inv.projectId);
     if (!projectId) throw new Error('Missing projectId');
@@ -1340,6 +1445,7 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
       approvalSnapshot,
       approvalRunId,
       history,
+      ...(submittedSnapshot ? { submittedSnapshot } : {}),
     });
   });
 

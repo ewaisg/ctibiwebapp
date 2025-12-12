@@ -42,7 +42,19 @@ export function getInvoiceAccess(user: User | null | undefined, invoice: Invoice
     return { canView: true, isReadOnly: !isAuthor, canSubmit: false, canResubmit: isAuthor, canApprove: false, canReject: false, canGeneratePdf: false, canRestorePdf: false, isAuthor, isAdminOrPrime, status: 'rejected' as const };
   }
   if (status === 'approved') {
-    return { canView: true, isReadOnly: true, canSubmit: false, canResubmit: false, canApprove: false, canReject: false, canGeneratePdf: isAdminOrPrime, canRestorePdf: isAdminOrPrime && Array.isArray(invoice?.pdfVersions) && (invoice!.pdfVersions as any[]).length > 0, isAuthor, isAdminOrPrime, status: 'approved' as const };
+    return {
+      canView: true,
+      isReadOnly: !isAdminOrPrime,
+      canSubmit: false,
+      canResubmit: false,
+      canApprove: false,
+      canReject: false,
+      canGeneratePdf: isAdminOrPrime,
+      canRestorePdf: isAdminOrPrime && Array.isArray(invoice?.pdfVersions) && (invoice!.pdfVersions as any[]).length > 0,
+      isAuthor,
+      isAdminOrPrime,
+      status: 'approved' as const
+    };
   }
   return { canView: !invoice || isAuthor, isReadOnly: !!invoice && !isAuthor, canSubmit: !invoice || (isAuthor && status === 'draft'), canResubmit: false, canApprove: false, canReject: false, canGeneratePdf: false, canRestorePdf: false, isAuthor, isAdminOrPrime, status: 'draft' as const };
 }

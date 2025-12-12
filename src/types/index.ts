@@ -216,6 +216,20 @@ export interface Invoice {
 
   // Added: optional rejection notes surfaced to UI (authoritative copy is in history trail)
   rejectedNotes?: string;
+
+  // Added: Immutable snapshot of the author's submitted invoice.
+  // Used to preserve the Subconsultant's original submission while allowing Prime/Admin
+  // to edit the approved invoice for client-facing adjustments.
+  submittedSnapshot?: {
+    capturedAt: Timestamp;
+    capturedBy: FlexibleReference;
+    capturedByName: string;
+    invoiceItems: InvoiceItem[];
+    reimbursableExpenses: ReimbursableExpense[];
+    invoiceItemsTotal: number;
+    reimbursableExpensesTotal: number;
+    invoiceTotal: number;
+  };
 }
 
 export interface ContractSummary {

@@ -317,6 +317,24 @@ export function InvoicesClientPage({
         const invoiceUserId = typeof invoice.userId === 'object' && (invoice.userId as any)?.id ? (invoice.userId as any).id : (invoice as any).userId;
         return invoiceUserId === user.uid;
       });
+
+      // IMPORTANT: If Prime/Admin later edits an approved invoice, preserve the Subconsultant view
+      // by using the immutable submittedSnapshot totals (and items, if present).
+      baseInvoices = baseInvoices.map((invoice: any) => {
+        const status = String(invoice?.status || '').toLowerCase();
+        const snapshot = invoice?.submittedSnapshot;
+        if (status === 'approved' && snapshot) {
+          return {
+            ...invoice,
+            invoiceItems: Array.isArray(snapshot.invoiceItems) ? snapshot.invoiceItems : invoice.invoiceItems,
+            reimbursableExpenses: Array.isArray(snapshot.reimbursableExpenses) ? snapshot.reimbursableExpenses : invoice.reimbursableExpenses,
+            invoiceItemsTotal: typeof snapshot.invoiceItemsTotal === 'number' ? snapshot.invoiceItemsTotal : invoice.invoiceItemsTotal,
+            reimbursableExpensesTotal: typeof snapshot.reimbursableExpensesTotal === 'number' ? snapshot.reimbursableExpensesTotal : invoice.reimbursableExpensesTotal,
+            invoiceTotal: typeof snapshot.invoiceTotal === 'number' ? snapshot.invoiceTotal : invoice.invoiceTotal,
+          };
+        }
+        return invoice;
+      });
     }
 
     // Enrich invoices with additional data for display

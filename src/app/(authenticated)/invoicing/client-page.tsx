@@ -246,7 +246,7 @@ function getInvoiceAccess(user: User | null | undefined, invoice: any | undefine
   if (status === 'approved') {
     return {
       canView: true,
-      isReadOnly: true,
+      isReadOnly: !isAdminOrPrime,
       canSubmit: false,
       canResubmit: false,
       canApprove: false,
@@ -290,6 +290,24 @@ export function InvoicingClientPage({
   const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+
+  const invoiceForDisplay = useMemo(() => {
+    if (!existingInvoice) return existingInvoice;
+    const role = user?.role;
+    const status = String((existingInvoice as any).status || '').toLowerCase();
+    const snapshot = (existingInvoice as any).submittedSnapshot;
+    if (role === 'Subconsultant' && status === 'approved' && snapshot) {
+      return {
+        ...existingInvoice,
+        invoiceItems: Array.isArray(snapshot.invoiceItems) ? snapshot.invoiceItems : (existingInvoice as any).invoiceItems,
+        reimbursableExpenses: Array.isArray(snapshot.reimbursableExpenses) ? snapshot.reimbursableExpenses : (existingInvoice as any).reimbursableExpenses,
+        invoiceItemsTotal: typeof snapshot.invoiceItemsTotal === 'number' ? snapshot.invoiceItemsTotal : (existingInvoice as any).invoiceItemsTotal,
+        reimbursableExpensesTotal: typeof snapshot.reimbursableExpensesTotal === 'number' ? snapshot.reimbursableExpensesTotal : (existingInvoice as any).reimbursableExpensesTotal,
+        invoiceTotal: typeof snapshot.invoiceTotal === 'number' ? snapshot.invoiceTotal : (existingInvoice as any).invoiceTotal,
+      };
+    }
+    return existingInvoice;
+  }, [existingInvoice, user?.role]);
   
   // State Management
   const [currentStep, setCurrentStep] = useState<'department' | 'project' | 'form'>('department');
@@ -320,7 +338,7 @@ export function InvoicingClientPage({
   const [existingUploadedFiles, setExistingUploadedFiles] = useState<Array<{ fileName: string; fileUrl: string }>>([]);
 
   // Helpers for permissions on existing invoice
-  const access = getInvoiceAccess(user, existingInvoice);
+  const access = getInvoiceAccess(user, invoiceForDisplay);
   // Remove previous local isAuthor/isAdminOrPrime/canSubmit/etc and use access
   const isAuthor = access.isAuthor;
   const isAdminOrPrime = access.isAdminOrPrime;
@@ -860,10 +878,10 @@ export function InvoicingClientPage({
 
   // Load existing invoice data to
   useEffect(() => {
-    if (existingInvoice && isEditing) {
-      const projectId = typeof existingInvoice.projectId === 'object' && 'id' in existingInvoice.projectId 
-        ? (existingInvoice.projectId as any).id 
-        : (existingInvoice as any).projectId;
+    if (invoiceForDisplay && isEditing) {
+      const projectId = typeof (invoiceForDisplay as any).projectId === 'object' && 'id' in (invoiceForDisplay as any).projectId 
+        ? ((invoiceForDisplay as any).projectId as any).id 
+        : (invoiceForDisplay as any).projectId;
 
       const project = projects.find(p => p.id === projectId);
       const departmentId = project && typeof project.departmentId === 'object' && 'id' in project.departmentId
@@ -873,16 +891,16 @@ export function InvoicingClientPage({
       setFormData({
         departmentId: typeof departmentId === 'string' ? departmentId : "",
         projectId: typeof projectId === 'string' ? projectId : "",
-        contractNumber: existingInvoice.contractNumber?.toString() || "",
-        poNumber: existingInvoice.poNumber || "",
-        pmisNumber: existingInvoice.pmisNumber || "",
-        invoiceNumber: existingInvoice.invoiceNumber || "",
-        fromDate: normalizeDateValue((existingInvoice as any).fromDate),
-        toDate: normalizeDateValue((existingInvoice as any).toDate),
-        dueDate: normalizeDateValue((existingInvoice as any).dueDate),
-        termOfWeek: existingInvoice.termOfWeek || "",
-        approvingSupervisor: existingInvoice.approvingSupervisor || "",
-        invoiceItems: existingInvoice.invoiceItems?.map((ii, index) => {
+        contractNumber: (invoiceForDisplay as any).contractNumber?.toString() || "",
+        poNumber: (invoiceForDisplay as any).poNumber || "",
+        pmisNumber: (invoiceForDisplay as any).pmisNumber || "",
+        invoiceNumber: (invoiceForDisplay as any).invoiceNumber || "",
+        fromDate: normalizeDateValue((invoiceForDisplay as any).fromDate),
+        toDate: normalizeDateValue((invoiceForDisplay as any).toDate),
+        dueDate: normalizeDateValue((invoiceForDisplay as any).dueDate),
+        termOfWeek: (invoiceForDisplay as any).termOfWeek || "",
+        approvingSupervisor: (invoiceForDisplay as any).approvingSupervisor || "",
+        invoiceItems: (invoiceForDisplay as any).invoiceItems?.map((ii: any, index: number) => {
           // Helper to normalize diverse date shapes (Date, Firestore Timestamp, seconds objects, ISO/string)
 function normalizeDate(raw: any): Date | undefined {
   if (!raw) return undefined;
@@ -957,7 +975,7 @@ function normalizeDate(raw: any): Date | undefined {
             serviceName: serviceNameRaw || service?.serviceName || undefined,
           } as unknown as InvoiceItemForm;
         }) || [],
-        reimbursableExpenses: existingInvoice.reimbursableExpenses?.map(re => {
+        reimbursableExpenses: (invoiceForDisplay as any).reimbursableExpenses?.map((re: any) => {
           // Resolve companyId with fallback to denormalized companyName
           const rawCompanyId = (typeof re.companyId === 'object' && 'id' in (re.companyId as any))
             ? (re.companyId as DocumentReference).id
@@ -992,14 +1010,14 @@ function normalizeDate(raw: any): Date | undefined {
       });
 
       // NEW: preload previously uploaded files to display in attachments section
-      const uploaded = Array.isArray((existingInvoice as any).uploadedFiles)
-        ? ((existingInvoice as any).uploadedFiles as Array<{ fileName: string; fileUrl: string }>)
+      const uploaded = Array.isArray((invoiceForDisplay as any).uploadedFiles)
+        ? ((invoiceForDisplay as any).uploadedFiles as Array<{ fileName: string; fileUrl: string }>)
         : [];
       setExistingUploadedFiles(uploaded.filter(f => f && f.fileName && f.fileUrl));
 
       setCurrentStep('form');
     }
-  }, [existingInvoice, isEditing, projects]);
+  }, [invoiceForDisplay, isEditing, projects]);
 
   const handleDepartmentSelect = (departmentId: string) => {
     setFormData(prev => ({ ...prev, departmentId, projectId: "" }));
@@ -1968,6 +1986,75 @@ function normalizeDate(raw: any): Date | undefined {
               ) }
             </CardContent>
           </Card>
+
+          {isAdminOrPrime && invStatus === 'approved' && (existingInvoice as any)?.submittedSnapshot ? (
+            <Card className="border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base">Original Submission (Read-only)</CardTitle>
+                <CardDescription>
+                  This is the Subconsultant’s submitted version. Editing below won’t change this snapshot.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Captured: {(() => {
+                    const raw = (existingInvoice as any)?.submittedSnapshot?.capturedAt;
+                    const d = normalizeDateValue(raw);
+                    return d ? d.toLocaleString() : '--';
+                  })()} by {(existingInvoice as any)?.submittedSnapshot?.capturedByName || 'Unknown'}
+                </div>
+
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Employee</th>
+                        <th className="px-3 py-2 text-left font-medium">Company</th>
+                        <th className="px-3 py-2 text-left font-medium">Service</th>
+                        <th className="px-3 py-2 text-right font-medium">Hours</th>
+                        <th className="px-3 py-2 text-right font-medium">Rate</th>
+                        <th className="px-3 py-2 text-right font-medium">Amount</th>
+                        <th className="px-3 py-2 text-left font-medium">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(((existingInvoice as any)?.submittedSnapshot?.invoiceItems as any[]) || []).map((it, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-3 py-2">{it.employeeName || it.employeeId || '--'}</td>
+                          <td className="px-3 py-2">{it.companyName || it.companyId || '--'}</td>
+                          <td className="px-3 py-2">{it.serviceName || it.serviceId || '--'}</td>
+                          <td className="px-3 py-2 text-right">{Number(it.hours || 0)}</td>
+                          <td className="px-3 py-2 text-right">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(it.billingRate || 0))}</td>
+                          <td className="px-3 py-2 text-right">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(it.amount || 0))}</td>
+                          <td className="px-3 py-2">{it.notes || ''}</td>
+                        </tr>
+                      ))}
+                      {(((existingInvoice as any)?.submittedSnapshot?.invoiceItems as any[]) || []).length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-3 text-muted-foreground" colSpan={7}>No submitted items</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 text-sm">
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Submitted Items Total</div>
+                    <div className="font-semibold">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number((existingInvoice as any)?.submittedSnapshot?.invoiceItemsTotal || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Submitted Expenses Total</div>
+                    <div className="font-semibold">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number((existingInvoice as any)?.submittedSnapshot?.reimbursableExpensesTotal || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Submitted Invoice Total</div>
+                    <div className="font-semibold">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number((existingInvoice as any)?.submittedSnapshot?.invoiceTotal || 0))}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Invoice Items */}
           <InvoiceItemsTable

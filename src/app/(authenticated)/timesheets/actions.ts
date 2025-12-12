@@ -13,6 +13,17 @@ interface UploadResult {
     errors?: number;
 }
 
+interface LastUploadInfo {
+    lastUploadedAt: Date | null;
+    lastUploadStats?: {
+        processed: number;
+        duplicates: number;
+        errors: number;
+        fileName: string;
+        fileSize: number;
+    };
+}
+
 // Fixed column structure - columns A to M
 interface TimesheetRow {
     employeeNumber: string;        // Column A
@@ -424,6 +435,24 @@ export async function processTimesheetUpload(file: File): Promise<UploadResult> 
         
         console.log('\n📊 Final results:', { processed, duplicates, errors });
 
+        // Store last upload timestamp in system_metadata collection
+        try {
+            await adminDb.collection('system_metadata').doc('timesheet_upload').set({
+                lastUploadedAt: Timestamp.now(),
+                lastUploadStats: {
+                    processed,
+                    duplicates,
+                    errors,
+                    fileName: file.name,
+                    fileSize: file.size
+                }
+            }, { merge: true });
+            console.log('✅ Last upload timestamp saved');
+        } catch (err) {
+            console.error('⚠️ Failed to save upload timestamp:', err);
+            // Don't fail the upload if timestamp save fails
+        }
+
         const result = {
             success: true,
             message: `Processing complete: ${processed} processed, ${duplicates} duplicates, ${errors} errors`,
@@ -431,7 +460,7 @@ export async function processTimesheetUpload(file: File): Promise<UploadResult> 
             duplicates,
             errors
         };
-        
+
         console.log('🎉 Upload completed successfully:', result);
         return result;
 
@@ -505,4 +534,29 @@ export async function deleteAllTimesheets(): Promise<{ success: boolean; deleted
   }
 
   return { success: true, deleted };
+}
+
+/**
+ * Get last timesheet upload information
+ */
+export async function getLastUploadInfo(): Promise<LastUploadInfo> {
+  if (!adminDb) throw new Error("Firestore is not initialized.");
+
+  try {
+    const doc = await adminDb.collection('system_metadata').doc('timesheet_upload').get();
+
+    if (!doc.exists) {
+      return { lastUploadedAt: null };
+    }
+
+    const data = doc.data();
+
+    return {
+      lastUploadedAt: data?.lastUploadedAt ? data.lastUploadedAt.toDate() : null,
+      lastUploadStats: data?.lastUploadStats || undefined
+    };
+  } catch (error) {
+    console.error('Error fetching last upload info:', error);
+    return { lastUploadedAt: null };
+  }
 }

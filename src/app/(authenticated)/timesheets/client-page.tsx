@@ -2,7 +2,7 @@
 
 import React, {useState, useEffect, useMemo, useTransition} from "react";
 import {toast} from "@/hooks/use-toast";
-import {subDays, startOfDay} from "date-fns";
+import {subDays, startOfDay, formatDistanceToNow} from "date-fns";
 import Link from "next/link";
 import {
     ChevronDown,
@@ -73,7 +73,7 @@ import type {
     Department,
     Employee,
     CtiTimesheet as TimesheetEntry} from "@/types";
-import {deleteTimesheetEntries, deleteAllTimesheets} from "./actions";
+import {deleteTimesheetEntries, deleteAllTimesheets, getLastUploadInfo} from "./actions";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -148,6 +148,27 @@ export function TimesheetClientPage({
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [confirmDeleteAllOpen, setConfirmDeleteAllOpen] = useState(false);
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+    // Last upload info
+    const [lastUploadInfo, setLastUploadInfo] = useState<{
+        lastUploadedAt: Date | null;
+        lastUploadStats?: {
+            processed: number;
+            duplicates: number;
+            errors: number;
+            fileName: string;
+            fileSize: number;
+        };
+    } | null>(null);
+
+    // Fetch last upload info on mount
+    useEffect(() => {
+        const fetchLastUpload = async () => {
+            const info = await getLastUploadInfo();
+            setLastUploadInfo(info);
+        };
+        fetchLastUpload();
+    }, []);
 
     const initialFilters = {
         timePeriod: '30d',
@@ -497,12 +518,11 @@ export function TimesheetClientPage({
             });
         });
         
-        // Sort by dateKey (YYYY-MM-DD) and take last 14 days
+        // Sort by dateKey (YYYY-MM-DD) - show all data from filtered entries
         const finalData = Array.from(dailyData.values())
             .sort((a, b) => a.dateKey.localeCompare(b.dateKey))
-            .slice(-14)
             .map(({ dateKey: _dk, ...rest }) => rest); // Remove dateKey from final output
-            
+
         console.log('📊 Final chart data:', finalData);
         return finalData;
     }, [filteredEntries]);
@@ -521,6 +541,19 @@ export function TimesheetClientPage({
                     <p className="text-muted-foreground">
                         Manage and review employee timesheet entries
                     </p>
+                    {lastUploadInfo?.lastUploadedAt && (
+                        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>
+                                Last uploaded: {formatDistanceToNow(new Date(lastUploadInfo.lastUploadedAt), { addSuffix: true })}
+                                {lastUploadInfo.lastUploadStats?.fileName && (
+                                    <span className="ml-1 text-xs">
+                                        ({lastUploadInfo.lastUploadStats.fileName})
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     {selectedEntryIds.size > 0 && (
@@ -1010,7 +1043,12 @@ export function TimesheetClientPage({
             <TimesheetUploadDialog
                 isOpen={uploadDialogOpen}
                 onClose={() => setUploadDialogOpen(false)}
-                onSuccess={() => router.refresh()}
+                onSuccess={async () => {
+                    router.refresh();
+                    // Refresh last upload info
+                    const info = await getLastUploadInfo();
+                    setLastUploadInfo(info);
+                }}
             />
         </>
     );

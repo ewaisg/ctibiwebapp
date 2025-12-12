@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { ArrowLeft, Upload, FileText, AlertTriangle, CheckCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ArrowLeft, Upload, FileText, AlertTriangle, CheckCircle, Clock } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -12,8 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { processTimesheetUpload } from "../actions";
+import { processTimesheetUpload, getLastUploadInfo } from "../actions";
 import Link from "next/link";
+import { formatDistanceToNow } from "date-fns";
 
 export default function TimesheetUploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -25,7 +26,25 @@ export default function TimesheetUploadPage() {
     errors?: number;
     message?: string;
   } | null>(null);
-  // Router imported but not used - removed for cleaner code
+  const [lastUploadInfo, setLastUploadInfo] = useState<{
+    lastUploadedAt: Date | null;
+    lastUploadStats?: {
+      processed: number;
+      duplicates: number;
+      errors: number;
+      fileName: string;
+      fileSize: number;
+    };
+  } | null>(null);
+
+  // Fetch last upload info on mount and after successful upload
+  useEffect(() => {
+    const fetchLastUpload = async () => {
+      const info = await getLastUploadInfo();
+      setLastUploadInfo(info);
+    };
+    fetchLastUpload();
+  }, [result?.success]); // Re-fetch when upload succeeds
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -81,6 +100,20 @@ export default function TimesheetUploadPage() {
           <CardDescription>
             Select a timesheet XLSX file to upload and process. The system will automatically detect columns and import the data.
           </CardDescription>
+          {lastUploadInfo?.lastUploadedAt && (
+            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+              <Clock className="h-4 w-4" />
+              <div>
+                <span className="font-medium">Last uploaded:</span>{" "}
+                {formatDistanceToNow(new Date(lastUploadInfo.lastUploadedAt), { addSuffix: true })}
+                {lastUploadInfo.lastUploadStats?.fileName && (
+                  <span className="ml-2">
+                    ({lastUploadInfo.lastUploadStats.fileName})
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-6">
           {!result && (

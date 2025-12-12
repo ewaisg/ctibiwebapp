@@ -245,19 +245,28 @@ export default function DashboardClient() {
       weekData.count++;
     });
 
-    // Convert to array and calculate weekly utilization percentages
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+
+    // Convert to array and calculate weekly utilization + billable/non-billable totals
     const weeklyArray = Array.from(weeklyData.entries())
       .map(([weekStart, data]) => {
         const weekStartDate = new Date(weekStart);
+        const weekEndDate = new Date(weekStart);
+        weekEndDate.setDate(weekEndDate.getDate() + 6);
         const formatDate = (d: Date) => `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
-        const weekLabel = `${formatDate(weekStartDate)}`;
+        const weekLabel = `${formatDate(weekEndDate)}`;
+
+        const billableHours = Math.max(0, data.billableSum);
+        const nonBillableHours = Math.max(0, data.totalSum - data.billableSum);
 
         const utilization = data.totalSum > 0 ? (data.billableSum / data.totalSum) * 100 : 0;
 
         return {
           date: weekLabel,
           weekStart,
-          utilization: Math.round(utilization * 10) / 10, // Round to 1 decimal
+          billableHours: round1(billableHours),
+          nonBillableHours: round1(nonBillableHours),
+          utilization: round1(utilization),
         };
       })
       .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
@@ -275,6 +284,8 @@ export default function DashboardClient() {
 
       return {
         date: week.date,
+        billableHours: week.billableHours,
+        nonBillableHours: week.nonBillableHours,
         utilization: week.utilization,
         trend: trendValue,
       };

@@ -3,7 +3,8 @@
 import { useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { IconCash, IconBriefcase, IconClock, IconTrendingUp } from "@tabler/icons-react";
-import { Pie, PieChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis, ResponsiveContainer } from "recharts";
+import { AccumulationChartComponent, AccumulationSeriesCollectionDirective, AccumulationSeriesDirective, AccumulationDataLabel, PieSeries, IAccLoadedEventArgs, AccumulationTooltip, ChartComponent, SeriesCollectionDirective, SeriesDirective, ColumnSeries, Category, Legend, Tooltip, ILoadedEventArgs, IAxisLabelRenderEventArgs, ITooltipRenderEventArgs, Inject } from '@syncfusion/ej2-react-charts';
+import { Browser } from '@syncfusion/ej2-base';
 import toast from "react-hot-toast";
 import {
   Table,
@@ -59,12 +60,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import {
   MoreHorizontal,
@@ -91,21 +86,7 @@ interface ProjectsClientPageProps {
 }
 
 // Chart configurations
-const departmentChartConfig = {
-  projects: {
-    label: "Projects",
-  },
-} satisfies ChartConfig;
 
-const budgetChartConfig = {
-  budget: {
-    label: "Budget",
-    color: "var(--chart-1)",
-  },
-  label: {
-    color: "var(--background)",
-  },
-} satisfies ChartConfig;
 
 export function ProjectsClientPage({ initialProjects, departments }: ProjectsClientPageProps) {
   const router = useRouter();
@@ -123,6 +104,28 @@ export function ProjectsClientPage({ initialProjects, departments }: ProjectsCli
   const [isArchiving, setIsArchiving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+
+  const axisLabelRender = (args: IAxisLabelRenderEventArgs): void => {
+      if (args.axis && args.axis.name === 'PrimaryYAxis') {
+        if (typeof args.value === 'number') {
+            const value = Number(args.value);
+            if (value >= 1000000) {
+                args.text = '$' + (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+                args.text = '$' + (value / 1000).toFixed(0) + 'K';
+            } else {
+                args.text = '$' + value;
+            }
+        }
+      }
+  };
+
+  const tooltipRender = (args: ITooltipRenderEventArgs) => {
+      if (args.point && args.point.y) {
+          let value: string = Number(args.point.y).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+          args.text = `${args.point.x}: <b>${value}</b>`;
+      }
+  };
 
   const handleFilterChange = (key: keyof typeof filters, value: string | boolean) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -313,13 +316,13 @@ export function ProjectsClientPage({ initialProjects, departments }: ProjectsCli
       
       if (count > 0) {
         acc.push({
-          department: dept.departmentName,
-          projects: count,
-          fill: `var(--chart-${Math.min(acc.length + 1, 5)})`,
+          x: dept.departmentName,
+          y: count,
+          text: `${dept.departmentName}: ${count}`,
         });
       }
       return acc;
-    }, [] as Array<{ department: string; projects: number; fill: string }>);
+    }, [] as Array<{ x: string; y: number; text: string }>);
     
     return deptCounts;
   }, [initialProjects, departments]);
@@ -542,22 +545,34 @@ export function ProjectsClientPage({ initialProjects, departments }: ProjectsCli
           <CardContent className="flex-1 pb-2">
             {departmentChartData.length > 0 ? (
               <div className="px-2 sm:px-4">
-                <ChartContainer config={departmentChartConfig} className="mx-auto w-full">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart>
-                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                      <Pie
-                        data={departmentChartData}
-                        dataKey="projects"
-                        nameKey="department"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={2}
-                        cornerRadius={4}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                <AccumulationChartComponent 
+                  id='pie-chart' 
+                  tooltip={{ enable: true, format: '<b>${point.x}</b><br> Projects: <b>${point.y}</b>', enableHighlight: true, header:"" }} 
+                  enableBorderOnMouseMove={false} 
+                  enableSmartLabels={true} 
+                  legendSettings={{ visible: false }}
+                >
+                    <Inject services={[AccumulationDataLabel, AccumulationTooltip, PieSeries]} />
+                    <AccumulationSeriesCollectionDirective>
+                        <AccumulationSeriesDirective 
+                          dataSource={departmentChartData} 
+                          xName='x' 
+                          yName='y' 
+                          name='Projects' 
+                          startAngle={0} 
+                          innerRadius='0%' 
+                          dataLabel={{ 
+                            visible: true, 
+                            textWrap: Browser.isDevice ? 'Wrap' : 'Normal', 
+                            position: 'Outside', 
+                            connectorStyle: { length: Browser.isDevice ? '2px' : '20px', type: 'Curve' }, 
+                            name: 'text', 
+                            font: { size: Browser.isDevice ? '7px' : '12px', fontWeight: '600' } 
+                          }} 
+                          radius={Browser.isDevice ? '40%' : '70%'} 
+                        />
+                    </AccumulationSeriesCollectionDirective>
+                </AccumulationChartComponent>
               </div>
             ) : (
               <div className="flex items-center justify-center h-[220px] text-muted-foreground">
@@ -584,37 +599,26 @@ export function ProjectsClientPage({ initialProjects, departments }: ProjectsCli
           <CardContent>
             {topProjectsChartData.length > 0 ? (
               <div className="px-2 sm:px-4">
-                <ChartContainer config={budgetChartConfig} className="w-full">
-                  <ResponsiveContainer width="100%" height={320}>
-                    <BarChart accessibilityLayer data={topProjectsChartData} layout="vertical" margin={{ right: 16, top: 8, bottom: 8 }}>
-                      <CartesianGrid horizontal={false} />
-                      <YAxis dataKey="projectName" type="category" tickLine={false} tickMargin={8} axisLine={false} hide />
-                      <XAxis dataKey="budget" type="number" hide />
-                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                      <Bar dataKey="budget" layout="vertical" fill="var(--color-budget)" radius={4} barSize={24} maxBarSize={28}>
-                        <LabelList dataKey="displayName" position="insideLeft" offset={8} className="fill-[--color-label]" fontSize={11} />
-                        <LabelList
-                          dataKey="budget"
-                          position="right"
-                          offset={6}
-                          className="fill-foreground"
-                          fontSize={11}
-                          formatter={(value: number) =>
-                            new Intl.NumberFormat("en-US", {
-                              style: "currency",
-                              currency: "USD",
-                              minimumFractionDigits: 0,
-                              maximumFractionDigits: 0,
-                            }).format(value)
-                          }
-                        />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                <ChartComponent 
+                    id='budget-chart' 
+                    style={{ textAlign: "center" }} 
+                    primaryXAxis={{ valueType: 'Category', interval: 1, labelIntersectAction: Browser.isDevice ? 'None' : 'Trim', labelRotation: Browser.isDevice ? -45 : 0, majorGridLines: { width: 0 }, majorTickLines: { width: 0 } }} 
+                    primaryYAxis={{ title: 'Budget', labelFormat: '${value}', majorTickLines: { width: 0 }, lineStyle: { width: 0 } }} 
+                    legendSettings={{ visible: false }} 
+                    chartArea={{ border: { width: 0 }, margin: { bottom: 12 } }} 
+                    tooltip={{ enable: true, header: '<b>${point.x}</b>', format: 'Budget: <b>${point.y}</b>', enableHighlight: true }} 
+                    width={'100%'} 
+                    axisLabelRender={axisLabelRender} 
+                    tooltipRender={tooltipRender}
+                >
+                    <Inject services={[ColumnSeries, Category, Legend, Tooltip]} />
+                    <SeriesCollectionDirective >
+                        <SeriesDirective dataSource={topProjectsChartData} xName='projectName' yName='budget' name='Budget' type='Column' cornerRadius={{ topLeft: 4, topRight: 4 }} columnSpacing={0.1} />
+                    </SeriesCollectionDirective>
+                </ChartComponent>
               </div>
             ) : (
-              <div className="flex items-center justify-center h-[240px] text-muted-foreground">
+              <div className="flex items-center justify-center h-60 text-muted-foreground">
                 <div className="text-center">
                   <IconTrendingUp className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No budget data available</p>
@@ -681,7 +685,7 @@ export function ProjectsClientPage({ initialProjects, departments }: ProjectsCli
             </Select>
 
             <Select value={filters.departmentId} onValueChange={value => handleFilterChange('departmentId', value)}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-40">
                 <SelectValue placeholder="Department" />
               </SelectTrigger>
               <SelectContent>

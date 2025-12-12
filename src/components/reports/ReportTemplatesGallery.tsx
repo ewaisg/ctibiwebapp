@@ -141,7 +141,7 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
 
         {/* Category Tabs */}
         <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
-          <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsList className="w-full justify-start overflow-x-auto h-auto pb-2">
             {categories.map((category) => (
               <TabsTrigger key={category.value} value={category.value} className="gap-2">
                 {category.label}
@@ -159,11 +159,11 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
                 {(selectedCategory !== 'custom') && (
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">My Templates</h3>
                 )}
-                <div className="grid gap-3">
+                <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
                   {filteredCustomTemplates.map((template) => (
                     <Card
                       key={template.id}
-                      className="hover:border-primary transition-colors cursor-pointer"
+                      className="hover:border-primary transition-colors cursor-pointer min-w-[300px] snap-center"
                       onClick={() => onSelectCustomTemplate?.(template)}
                     >
                       <CardContent className="p-4">
@@ -208,7 +208,7 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
                     No reports found matching your search
                   </div>
                 ) : (
-                  <div className="grid gap-3">
+                  <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
                     {filteredTemplates.map((template) => {
                       const Icon = iconMap[template.icon || 'FileText'];
                       const colorClass = colorMap[template.color || 'blue'];
@@ -216,7 +216,7 @@ export function ReportTemplatesGallery({ onSelectTemplate, customTemplates = [],
                       return (
                         <Card
                           key={template.id}
-                          className="hover:border-primary transition-colors cursor-pointer"
+                          className="hover:border-primary transition-colors cursor-pointer min-w-[300px] snap-center"
                           onClick={() => onSelectTemplate(template)}
                         >
                           <CardContent className="p-4">

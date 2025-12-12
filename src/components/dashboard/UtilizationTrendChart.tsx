@@ -1,12 +1,25 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ReferenceLine, Cell } from "recharts";
+import { useTheme } from "next-themes";
+import {
+  ChartComponent,
+  SeriesCollectionDirective,
+  SeriesDirective,
+  Inject,
+  ColumnSeries,
+  Category,
+  Legend,
+  Tooltip,
+  ChartTheme,
+} from "@syncfusion/ej2-react-charts";
+import { Browser } from "@syncfusion/ej2-base";
 
 export type UtilizationTrendDatum = {
   date: string;
+  billableHours: number;
+  nonBillableHours: number;
   utilization: number;
   trend?: number;
 };
@@ -24,17 +37,12 @@ function UtilizationTrendChart({
   subtitle = "Company-wide billable utilization over time",
   targetUtilization = 80
 }: UtilizationTrendChartProps) {
-  const config: ChartConfig = {
-    utilization: { label: "Utilization %", color: "hsl(var(--chart-1))" },
-    target: { label: `Target (${targetUtilization}%)`, color: "hsl(var(--muted-foreground))" },
-  };
+  const { resolvedTheme } = useTheme();
+  const [sfTheme, setSfTheme] = useState<ChartTheme>("Tailwind");
 
-  // Function to get color based on utilization value
-  const getBarColor = (value: number) => {
-    if (value >= targetUtilization) return "#22c55e"; // Green
-    if (value >= 60) return "#eab308"; // Yellow
-    return "#ef4444"; // Red
-  };
+  useEffect(() => {
+    setSfTheme(resolvedTheme === "dark" ? "TailwindDark" : "Tailwind");
+  }, [resolvedTheme]);
 
   const hasData = Array.isArray(data) && data.length > 0;
 
@@ -51,11 +59,12 @@ function UtilizationTrendChart({
     return { label: "Critical", color: "text-red-600", bgColor: "bg-red-50" };
   }, [avgUtilization, targetUtilization]);
 
-  // Find max value for chart scaling
-  const maxValue = useMemo(() => {
-    if (!hasData) return 100;
-    const dataMax = Math.max(...data.map(d => d.utilization), ...data.map(d => d.trend ?? 0));
-    return Math.max(100, Math.ceil(dataMax / 10) * 10);
+  const maxHoursValue = useMemo(() => {
+    if (!hasData) return 10;
+    const dataMax = Math.max(
+      ...data.map(d => Math.max(0, (d.billableHours ?? 0) + (d.nonBillableHours ?? 0)))
+    );
+    return Math.max(10, Math.ceil(dataMax / 10) * 10);
   }, [data, hasData]);
 
   return (
@@ -83,69 +92,54 @@ function UtilizationTrendChart({
           </div>
         </div>
       ) : (
-        <ChartContainer config={config} className="h-64">
-          <BarChart data={data} accessibilityLayer margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-
-            <XAxis
-              dataKey="date"
-              tickMargin={8}
-              tickLine={false}
-              axisLine={false}
-              label={{ value: 'Week Starting', position: 'insideBottom', offset: -5, fontSize: 11 }}
-            />
-            <YAxis
-              domain={[0, maxValue]}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(value) => `${value}%`}
-              label={{ value: 'Utilization %', angle: -90, position: 'insideLeft', fontSize: 11 }}
-            />
-
-            {/* Target threshold line (dashed horizontal) */}
-            <ReferenceLine
-              y={targetUtilization}
-              stroke="#94a3b8"
-              strokeDasharray="5 5"
-              strokeWidth={2}
-              label={{
-                value: `Target: ${targetUtilization}%`,
-                position: 'right',
-                fill: '#64748b',
-                fontSize: 12
-              }}
-            />
-
-            {/* Utilization bars with color-coding */}
-            <Bar dataKey="utilization" radius={[4, 4, 0, 0]}>
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={getBarColor(entry.utilization)} />
-              ))}
-            </Bar>
-
-            <ChartTooltip
-              content={<ChartTooltipContent formatter={(value) => `${value}%`} />}
-              allowEscapeViewBox={{ x: true, y: true }}
-            />
-          </BarChart>
-        </ChartContainer>
-      )}
-
-      {/* Color legend */}
-      {hasData && (
-        <div className="mt-4 flex items-center justify-center gap-6 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded" style={{ backgroundColor: "#22c55e" }} />
-            <span className="text-muted-foreground">On Target (≥{targetUtilization}%)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded" style={{ backgroundColor: "#eab308" }} />
-            <span className="text-muted-foreground">Below Target (60-{targetUtilization - 1}%)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded" style={{ backgroundColor: "#ef4444" }} />
-            <span className="text-muted-foreground">Critical (&lt;60%)</span>
-          </div>
+        <div className="h-64">
+          <ChartComponent
+            id="utilization-trend-hours"
+            theme={sfTheme}
+            primaryXAxis={{
+              valueType: "Category",
+              title: "Week Ending",
+              majorGridLines: { width: 0 },
+              majorTickLines: { width: 0 },
+              minorTickLines: { width: 0 },
+              lineStyle: { width: 0 },
+              labelIntersectAction: Browser.isDevice ? "None" : "Rotate45",
+              labelStyle: { size: "11px" },
+            }}
+            primaryYAxis={{
+              title: "Hours",
+              minimum: 0,
+              maximum: maxHoursValue,
+              interval: Math.max(5, Math.ceil(maxHoursValue / 5)),
+              majorTickLines: { width: 0 },
+              lineStyle: { width: 0 },
+            }}
+            tooltip={{ enable: true, header: "<b>${point.x}</b>", format: "${series.name} : <b>${point.y}</b>h" }}
+            legendSettings={{ visible: true, position: "Bottom" }}
+            chartArea={{ border: { width: 0 } }}
+            height="100%"
+            width="100%"
+          >
+            <Inject services={[ColumnSeries, Category, Legend, Tooltip]} />
+            <SeriesCollectionDirective>
+              <SeriesDirective
+                dataSource={data}
+                xName="date"
+                yName="billableHours"
+                name="Billable"
+                type="Column"
+                fill="#00bdae"
+              />
+              <SeriesDirective
+                dataSource={data}
+                xName="date"
+                yName="nonBillableHours"
+                name="Non-Billable"
+                type="Column"
+                fill="#404041"
+              />
+            </SeriesCollectionDirective>
+          </ChartComponent>
         </div>
       )}
     </Card>

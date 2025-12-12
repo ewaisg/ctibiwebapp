@@ -49,10 +49,9 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
   const [generating, setGenerating] = useState(false);
   const [viewMode, setViewMode] = useState<'gallery' | 'configure'>('gallery');
   const [dateRangeMode, setDateRangeMode] = useState<'allTime' | 'dateRange'>('allTime');
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [selectedContracts, setSelectedContracts] = useState<string[]>([]);
-  const [openDepartmentPopover, setOpenDepartmentPopover] = useState(false);
   const [openProjectPopover, setOpenProjectPopover] = useState(false);
   const [openContractPopover, setOpenContractPopover] = useState(false);
 
@@ -78,7 +77,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
   const clearFilters = () => {
     setFilters({});
     setDateRangeMode('allTime');
-    setSelectedDepartments([]);
+    setSelectedDepartment("");
     setSelectedProjects([]);
     setSelectedContracts([]);
   };
@@ -94,8 +93,8 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     }
 
     // Sync departments
-    if (selectedDepartments.length > 0) {
-      newFilters.departmentId = selectedDepartments.length === 1 ? selectedDepartments[0] : selectedDepartments;
+    if (selectedDepartment && selectedDepartment !== "all") {
+      newFilters.departmentId = selectedDepartment;
     } else {
       delete newFilters.departmentId;
     }
@@ -115,7 +114,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     }
 
     setFilters(newFilters);
-  }, [dateRangeMode, selectedDepartments, selectedProjects, selectedContracts]);
+  }, [dateRangeMode, selectedDepartment, selectedProjects, selectedContracts]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -144,7 +143,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     setSelectedCustomTemplate(null);
     setFilters({});
     setDateRangeMode('allTime');
-    setSelectedDepartments([]);
+    setSelectedDepartment("");
     setSelectedProjects([]);
     setSelectedContracts([]);
     setViewMode('configure');
@@ -155,7 +154,7 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
     setSelectedPrebuiltTemplate(null);
     setFilters({});
     setDateRangeMode('allTime');
-    setSelectedDepartments([]);
+    setSelectedDepartment("");
     setSelectedProjects([]);
     setSelectedContracts([]);
     setViewMode('configure');
@@ -173,6 +172,12 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
         toast.error('Please select both From and To dates');
         return;
       }
+    }
+
+    // Validation for Department - User must select 'All Departments' or a specific department
+    if (!selectedDepartment) {
+      toast.error('Please select a department');
+      return;
     }
 
     setGenerating(true);
@@ -376,72 +381,49 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
 
                   {/* Additional Filters - Only show relevant filters based on report template */}
                   <div className="space-y-4">
-                    {/* Department Multi-Select - Show only if report supports it */}
-                    {selectedPrebuiltTemplate?.optionalFilters?.includes('departmentId') && (
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                          <Building2 className="h-3 w-3" />
-                          Departments
-                        </Label>
-                        <Popover open={openDepartmentPopover} onOpenChange={setOpenDepartmentPopover}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={openDepartmentPopover}
-                              className="w-full justify-between font-normal"
-                            >
-                              {selectedDepartments.length === 0
-                                ? "All Departments"
-                                : selectedDepartments.length === 1
-                                ? departments.find(d => d.id === selectedDepartments[0])?.departmentName
-                                : `${selectedDepartments.length} departments selected`}
-                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Search departments..." />
-                              <CommandEmpty>No department found.</CommandEmpty>
-                              <CommandGroup className="max-h-64 overflow-auto">
-                                <CommandItem
-                                  onSelect={() => {
-                                    setSelectedDepartments([]);
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  <Check
-                                    className={`mr-2 h-4 w-4 ${selectedDepartments.length === 0 ? "opacity-100" : "opacity-0"}`}
-                                  />
-                                  All Departments
-                                </CommandItem>
-                                {departments.map((dept) => (
-                                  <CommandItem
-                                    key={dept.id}
-                                    onSelect={() => {
-                                      setSelectedDepartments(prev =>
-                                        prev.includes(dept.id)
-                                          ? prev.filter(id => id !== dept.id)
-                                          : [...prev, dept.id]
-                                      );
-                                    }}
-                                    className="cursor-pointer"
-                                  >
-                                    <Check
-                                      className={`mr-2 h-4 w-4 ${selectedDepartments.includes(dept.id) ? "opacity-100" : "opacity-0"}`}
-                                    />
-                                    {dept.departmentName}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                        <p className="text-xs text-muted-foreground">
-                          Click items to select multiple departments or choose "All Departments"
-                        </p>
-                      </div>
-                    )}
+                    {/* Department Selection - Show only if report supports it */}
+                    {/* Always show department selection for all reports as requested, or stick to template config? 
+                        The request said "this should be applied to all reports, even those not related to departments."
+                        This implies we should probably show it always or at least when it IS shown, it behaves this way.
+                        However, if the report doesn't use departmentId, selecting it won't do anything in the backend unless the backend is generic.
+                        Assuming the user means "for any report that has department selection", or "add department selection to all reports".
+                        Given "even those not related to departments", it sounds like they want it available.
+                        But if the template doesn't support it, it might be confusing.
+                        I will stick to showing it when `optionalFilters` includes it, OR if I should force it.
+                        The prompt says: "in 'Configure Report': the default department selection should be nothing but require the user to select 'All Departments' or one department from the list. we are not going to do one or more department. (note: this should be applied to all reports, even those not related to departments."
+                        
+                        This phrasing "even those not related to departments" suggests I should probably ADD it to all reports or ensure the UI is consistent.
+                        But if the report logic doesn't use it, it's useless.
+                        I'll assume for now I should just modify the existing conditional block to be a Select, and maybe the user implies that ALL reports should have this filter available.
+                        But `selectedPrebuiltTemplate?.optionalFilters?.includes('departmentId')` controls visibility.
+                        If I remove the condition, it shows for all.
+                        I will remove the condition `selectedPrebuiltTemplate?.optionalFilters?.includes('departmentId')` to show it for all reports as requested.
+                    */}
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Building2 className="h-3 w-3" />
+                        Department
+                      </Label>
+                      <Select
+                        value={selectedDepartment}
+                        onValueChange={setSelectedDepartment}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Departments</SelectItem>
+                          {departments.map((dept) => (
+                            <SelectItem key={dept.id} value={dept.id}>
+                              {dept.departmentName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Select a specific department or "All Departments"
+                      </p>
+                    </div>
 
                     {/* Project Multi-Select - Show only if report supports it */}
                     {selectedPrebuiltTemplate?.optionalFilters?.includes('projectId') && (
@@ -610,20 +592,6 @@ export function ReportsClientPage({ departments, projects, contracts }: ReportsC
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  disabled={generating}
-                  onClick={() => handleGenerateReport(true)}
-                >
-                  {generating ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Eye className="mr-2 h-4 w-4" />
-                  )}
-                  Preview PDF
-                </Button>
-
                 <Button
                   className="w-full"
                   disabled={generating}

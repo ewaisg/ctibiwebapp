@@ -8,6 +8,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { randomInt } from 'crypto';
 import { sanitizeForLog } from '@/lib/security-utils';
 import type { User, UserRole, Company, Project, Department, Division } from '@/types';
+import { getAdminStorage } from '@/lib/firebase-admin';
 
 // Sanitize project data to enforce schema compliance and remove non-serializable objects
 function sanitizeProjectData(rawProject: any): Project {
@@ -69,7 +70,14 @@ function sanitizeProjectData(rawProject: any): Project {
   if (Array.isArray(sanitized.files)) {
     sanitized.files = sanitized.files
       .filter((f: any) => f && f.fileName && f.fileUrl)
-      .map((f: any) => ({ fileName: f.fileName, fileUrl: f.fileUrl }));
+      .map((f: any) => ({
+        fileName: f.fileName,
+        fileUrl: f.fileUrl,
+        filePath: f.filePath,
+        size: typeof f.size === 'number' ? f.size : undefined,
+        type: typeof f.type === 'string' ? f.type : undefined,
+        uploadedAt: typeof f.uploadedAt === 'string' ? f.uploadedAt : undefined,
+      }));
   }
 
   return sanitized as Project;
@@ -815,12 +823,24 @@ export async function assignCompanyToProject(
 
 export async function uploadProjectFile(
   projectId: string,
-  fileName: string,
-  fileUrl: string
-): Promise<{ success: boolean; message: string }> {
+  requesterUid: string,
+  file: File
+): Promise<{ success: boolean; message: string; file?: { fileName: string; fileUrl: string; filePath?: string; size?: number; type?: string; uploadedAt?: string } }> {
   if (!adminDb) throw new Error("Firestore is not initialized.");
   
   try {
+    if (!requesterUid) {
+      return { success: false, message: 'Missing requester' };
+    }
+    if (!file) {
+      return { success: false, message: 'No file provided' };
+    }
+    // Basic file size guard (keeps server actions safe)
+    const maxBytes = 25 * 1024 * 1024; // 25MB
+    if (typeof file.size === 'number' && file.size > maxBytes) {
+      return { success: false, message: 'File is too large (max 25MB)' };
+    }
+
     const projectDoc = await adminDb.collection('projects').doc(projectId).get();
     if (!projectDoc.exists) {
       return { success: false, message: "Project not found" };
@@ -829,19 +849,52 @@ export async function uploadProjectFile(
     const project = projectDoc.data();
     const files = project?.files || [];
 
+    const originalName = (file.name || '').toString();
+    const fileName = originalName.replace(/\\/g, '/').split('/').pop() || 'upload';
+
     // Check if file already exists
     const existingFile = files.find((f: any) => f.fileName === fileName);
     if (existingFile) {
       return { success: false, message: "File with this name already exists" };
     }
 
-    files.push({ fileName, fileUrl });
+    // Upload to Firebase Storage (admin SDK)
+    const storage = getAdminStorage();
+    const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket();
 
+    const uploadedAt = new Date().toISOString();
+    const safeName = fileName.replace(/[^a-zA-Z0-9._\- ()]/g, '_');
+    const filePath = `projects/${projectId}/files/${Date.now()}-${safeName}`;
+    const storageFile = bucket.file(filePath);
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    await storageFile.save(buffer, {
+      contentType: file.type || 'application/octet-stream',
+      resumable: false,
+      metadata: { cacheControl: 'private, max-age=0' },
+    });
+
+    const [fileUrl] = await storageFile.getSignedUrl({ action: 'read', expires: '2100-01-01' });
+
+    const fileRecord = {
+      fileName,
+      fileUrl,
+      filePath,
+      size: typeof file.size === 'number' ? file.size : undefined,
+      type: file.type || undefined,
+      uploadedAt,
+    };
+
+    files.push(fileRecord);
     await adminDb.collection('projects').doc(projectId).update({ files });
 
     return {
       success: true,
-      message: "File uploaded successfully"
+      message: "File uploaded successfully",
+      file: fileRecord,
     };
   } catch (error) {
     console.error('Error uploading project file:', sanitizeForLog(error));
@@ -866,6 +919,21 @@ export async function deleteProjectFile(
 
     const project = projectDoc.data();
     const files = project?.files || [];
+
+    const target = files.find((f: any) => f?.fileName === fileName);
+    const filePath = target?.filePath as string | undefined;
+
+    // Best-effort delete from storage when we know the path
+    if (filePath) {
+      try {
+        const storage = getAdminStorage();
+        const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+        const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket();
+        await bucket.file(filePath).delete({ ignoreNotFound: true });
+      } catch (storageErr) {
+        console.warn('Storage delete skipped/failed:', sanitizeForLog(storageErr));
+      }
+    }
 
     const updatedFiles = files.filter((f: any) => f.fileName !== fileName);
 

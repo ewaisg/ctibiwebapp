@@ -113,6 +113,10 @@ export interface Project {
   files?: {
     fileName: string;
     fileUrl: string;
+    filePath?: string; // Firebase Storage path (for deletion / regeneration)
+    size?: number;
+    type?: string;
+    uploadedAt?: string; // ISO string
   }[];
   originalPoAmount?: number;
   changeOrderAmount?: number;

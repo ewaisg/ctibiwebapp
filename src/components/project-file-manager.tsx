@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,10 +36,12 @@ import {
 } from 'lucide-react';
 import { uploadProjectFile, deleteProjectFile } from '@/app/(authenticated)/admin/actions';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '@/hooks/use-auth';
 
 interface FileItem {
   fileName: string;
   fileUrl: string;
+  filePath?: string;
   size?: number;
   uploadedAt?: string;
   type?: string;
@@ -52,10 +54,18 @@ interface ProjectFileManagerProps {
 }
 
 export default function ProjectFileManager({ projectId, files = [], onFilesUpdated }: ProjectFileManagerProps) {
+  const { user } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [isUploading, setIsUploading] = useState(false);
+  const [search, setSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredFiles = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return files;
+    return files.filter(f => (f.fileName || '').toLowerCase().includes(q));
+  }, [files, search]);
 
   // Get file icon based on extension
   const getFileIcon = (fileName: string) => {
@@ -119,28 +129,21 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
     const uploadedFiles = event.target.files;
     if (!uploadedFiles || uploadedFiles.length === 0) return;
 
+    if (!user?.uid) {
+      toast.error('You must be signed in to upload');
+      return;
+    }
+
     setIsUploading(true);
     
     try {
       for (const file of Array.from(uploadedFiles)) {
-        // In a real implementation, you would upload to cloud storage (AWS S3, etc.)
-        // For now, we'll create a mock URL
-        const mockFileUrl = `https://storage.example.com/projects/${projectId}/${file.name}`;
+        const result = await uploadProjectFile(projectId, user.uid, file);
         
-        const result = await uploadProjectFile(projectId, file.name, mockFileUrl);
-        
-        if (result.success) {
-          const newFile: FileItem = {
-            fileName: file.name,
-            fileUrl: mockFileUrl,
-            size: file.size,
-            uploadedAt: new Date().toISOString(),
-            type: file.type
-          };
-          
-          const updatedFiles = [...files, newFile];
+        if (result.success && result.file) {
+          const updatedFiles = [...files, result.file as FileItem];
           onFilesUpdated?.(updatedFiles);
-          toast.success(`${file.name} uploaded successfully`);
+          toast.success(`${result.file.fileName} uploaded successfully`);
         } else {
           toast.error(`Failed to upload ${file.name}: ${result.message}`);
         }
@@ -197,9 +200,15 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
           <div className="flex items-center gap-2">
             <FolderOpenIcon className="h-5 w-5" />
             <CardTitle>Project Files</CardTitle>
-            <Badge variant="secondary">{files.length} files</Badge>
+            <Badge variant="secondary">{filteredFiles.length} files</Badge>
           </div>
           <div className="flex items-center gap-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search files..."
+              className="hidden w-56 md:block"
+            />
             <Input
               ref={fileInputRef}
               type="file"
@@ -227,7 +236,7 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
         </div>
       </CardHeader>
       <CardContent>
-        {files.length === 0 ? (
+        {filteredFiles.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <span aria-hidden="true">
               <FolderOpenIcon className="h-16 w-16 mx-auto mb-4 opacity-50" />
@@ -275,12 +284,12 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
                         type="checkbox"
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedFiles(files.map(f => f.fileName));
+                            setSelectedFiles(filteredFiles.map(f => f.fileName));
                           } else {
                             setSelectedFiles([]);
                           }
                         }}
-                        checked={selectedFiles.length === files.length && files.length > 0}
+                        checked={selectedFiles.length === filteredFiles.length && filteredFiles.length > 0}
                       />
                     </TableHead>
                     <TableHead>Name</TableHead>
@@ -291,7 +300,7 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {files.map((file, index) => (
+                  {filteredFiles.map((file, index) => (
                     <TableRow key={index}>
                       <TableCell>
                         <input
@@ -352,7 +361,7 @@ export default function ProjectFileManager({ projectId, files = [], onFilesUpdat
               </Table>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {files.map((file, index) => (
+                {filteredFiles.map((file, index) => (
                   <Card key={index} className="cursor-pointer hover:shadow-md transition-shadow">
                     <CardContent className="p-4 text-center">
                       <div className="mb-3">

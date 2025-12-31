@@ -15,7 +15,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Project, Contract, Company, Department, Division, Service } from "@/types";
 import { toast } from "react-hot-toast";
-import { createProject, updateProject } from "@/app/(authenticated)/admin/actions";
+import { createProject, updateProject } from "@/app/(authenticated)/admin/admin-project-actions";
 
 interface ProjectFormData {
   projectName: string;

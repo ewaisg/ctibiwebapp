@@ -1,5 +1,11 @@
 "use client";
 
+import { useInvoiceList } from '@/hooks/use-invoice-list';
+import { useInvoiceFilters } from '@/hooks/use-invoice-filters';
+import { InvoiceListHeader } from '@/components/invoices/InvoiceListHeader';
+import { InvoiceListFilters } from '@/components/invoices/InvoiceListFilters';
+import { InvoiceListGrid } from '@/components/invoices/InvoiceListGrid';
+
 // Fix imports to include useRef for SignaturePad
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -65,7 +71,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PaymentDrawer } from "@/components/payment-drawer";
-import { useDebounce } from "@/hooks/use-debounce";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { TrendlineChart } from "@/components/charts/TrendlineChart";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -217,16 +222,37 @@ export function InvoicesClientPage({
   const secureRef = useRef(secureRequest);
   useEffect(() => { secureRef.current = secureRequest; }, [secureRequest]);
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const debouncedSearchTerm = useDebounce(searchTerm, 300);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  // Fix: correct setter name for payment status filter
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
-  const [companyFilter, setCompanyFilter] = useState<string>("all");
-  // New: additional filters
-  const [projectFilter, setProjectFilter] = useState<string>("all");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
+  const { enrichedInvoices: invoices, availableCompanies } = useInvoiceList({
+    initialInvoices,
+    user,
+    projects,
+    users,
+    companies,
+  });
+
+  const {
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    paymentStatusFilter,
+    setPaymentStatusFilter,
+    companyFilter,
+    setCompanyFilter,
+    projectFilter,
+    setProjectFilter,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    showChart,
+    setShowChart,
+    filteredInvoices,
+    metrics,
+    chartData,
+    hasActiveFilters,
+    resetFilters,
+  } = useInvoiceFilters(invoices);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -239,7 +265,6 @@ export function InvoicesClientPage({
   const [openSummary, setOpenSummary] = useState(false);
   const [openBillingPacket, setOpenBillingPacket] = useState(false);
   const { toast } = useToast();
-  const [showChart, setShowChart] = useState(false);
 
   // Cover page wizard state
   const [coverDeptId, setCoverDeptId] = useState<string>("");
@@ -304,187 +329,6 @@ export function InvoicesClientPage({
     setPaymentTarget(invoice);
     setPaymentDrawerOpen(true);
   };
-
-  // Filter invoices based on user role
-  const filteredInvoices = useMemo(() => {
-    if (!user) return [];
-
-    let baseInvoices = initialInvoices;
-
-    // Role-based filtering - compare document references properly
-    if (user.role === 'Subconsultant') {
-      baseInvoices = baseInvoices.filter(invoice => {
-        const invoiceUserId = typeof invoice.userId === 'object' && (invoice.userId as any)?.id ? (invoice.userId as any).id : (invoice as any).userId;
-        return invoiceUserId === user.uid;
-      });
-
-      // IMPORTANT: If Prime/Admin later edits an approved invoice, preserve the Subconsultant view
-      // by using the immutable submittedSnapshot totals (and items, if present).
-      baseInvoices = baseInvoices.map((invoice: any) => {
-        const status = String(invoice?.status || '').toLowerCase();
-        const snapshot = invoice?.submittedSnapshot;
-        if (status === 'approved' && snapshot) {
-          return {
-            ...invoice,
-            invoiceItems: Array.isArray(snapshot.invoiceItems) ? snapshot.invoiceItems : invoice.invoiceItems,
-            reimbursableExpenses: Array.isArray(snapshot.reimbursableExpenses) ? snapshot.reimbursableExpenses : invoice.reimbursableExpenses,
-            invoiceItemsTotal: typeof snapshot.invoiceItemsTotal === 'number' ? snapshot.invoiceItemsTotal : invoice.invoiceItemsTotal,
-            reimbursableExpensesTotal: typeof snapshot.reimbursableExpensesTotal === 'number' ? snapshot.reimbursableExpensesTotal : invoice.reimbursableExpensesTotal,
-            invoiceTotal: typeof snapshot.invoiceTotal === 'number' ? snapshot.invoiceTotal : invoice.invoiceTotal,
-          };
-        }
-        return invoice;
-      });
-    }
-
-    // Enrich invoices with additional data for display
-    const enrichedInvoices = baseInvoices.map((invoice) => {
-      const projectId = typeof invoice.projectId === 'object' && (invoice.projectId as any)?.id ? (invoice.projectId as any).id : (invoice as any).projectId;
-      const project = projects.find(p => p.id === projectId);
-      const userId = typeof invoice.userId === 'object' && (invoice.userId as any)?.id ? (invoice.userId as any).id : (invoice as any).userId;
-      const submitter = users.find(u => u.uid === userId);
-      const companyId = typeof invoice.submitterCompanyId === 'object' && (invoice.submitterCompanyId as any)?.id ? (invoice.submitterCompanyId as any).id : (invoice as any).submitterCompanyId;
-      const submitterCompany = companies.find(c => c.id === companyId);
-
-      return {
-        ...invoice,
-        id: (invoice as any).id || '',
-        projectName: project?.projectName || 'Unknown Project',
-        submitterName: submitter?.displayName || (invoice as any).submitterName || 'Unknown User',
-        companyName: submitterCompany?.companyName || (invoice as any).submitterCompany || 'Unknown Company',
-        submitterCompanyIdString: companyId,
-        projectIdString: projectId,
-      } as any;
-    });
-
-    // Apply filters
-    let filtered = enrichedInvoices;
-
-    if (debouncedSearchTerm) {
-      filtered = filtered.filter((invoice: any) =>
-        String(invoice.invoiceNumber || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        String(invoice.projectName || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        String(invoice.submitterName || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        String(invoice.companyName || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-      );
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((invoice: any) => invoice.status === statusFilter);
-    }
-
-    if (paymentStatusFilter !== "all") {
-      filtered = filtered.filter((invoice: any) => {
-        return invoice.paymentStatus === paymentStatusFilter;
-      });
-    }
-
-
-
-    if (companyFilter !== "all") {
-      filtered = filtered.filter((invoice: any) => invoice.submitterCompanyIdString === companyFilter);
-    }
-
-    if (projectFilter !== "all") {
-      filtered = filtered.filter((invoice: any) => invoice.projectIdString === projectFilter);
-    }
-
-    const parseInvDate = (inv: any): Date | null => {
-      const raw = inv.toDate || inv.dueDate || inv.fromDate;
-      if (!raw) return null;
-      if (typeof raw === 'string') {
-        const d = new Date(raw);
-        return isNaN(d.getTime()) ? null : d;
-      }
-      if (raw && typeof raw === 'object' && 'seconds' in raw) {
-        const seconds = Number((raw as any).seconds);
-        const d = !isNaN(seconds) ? new Date(seconds * 1000) : null;
-        return d && !isNaN(d.getTime()) ? d : null;
-      }
-      if (raw instanceof Date) return raw;
-      return null;
-    };
-
-    if (dateFrom) {
-      const from = new Date(dateFrom);
-      filtered = filtered.filter((invoice: any) => {
-        const d = parseInvDate(invoice);
-        return d ? d >= from : true;
-      });
-    }
-
-    if (dateTo) {
-      const to = new Date(dateTo);
-      filtered = filtered.filter((invoice: any) => {
-        const d = parseInvDate(invoice);
-        return d ? d <= to : true;
-      });
-    }
-
-    return filtered;
-  // Fix: dependency list should depend on paymentStatusFilter, not setter
-  }, [initialInvoices, user, projects, users, companies, debouncedSearchTerm, statusFilter, paymentStatusFilter, companyFilter, projectFilter, dateFrom, dateTo]);
-
-  // Calculate metrics
-  const metrics = useMemo(() => {
-    const totalInvoices = filteredInvoices.length;
-    const draftInvoices = filteredInvoices.filter(inv => inv.status === 'draft').length;
-    const pendingInvoices = filteredInvoices.filter(inv => inv.status === 'submitted').length;
-    const approvedInvoices = filteredInvoices.filter(inv => inv.status === 'approved').length;
-    const totalAmount = filteredInvoices.reduce((sum, inv) => sum + (inv.invoiceTotal || 0), 0);
-
-    return {
-      totalInvoices,
-      draftInvoices,
-      pendingInvoices,
-      approvedInvoices,
-      totalAmount,
-    };
-  }, [filteredInvoices]);
-
-  // Calculate chart data (monthly totals) - Use toDate as it represents the billing month
-  const chartData = useMemo(() => {
-    const monthlyData = new Map<string, { amount: number; sortKey: number }>();
-
-    filteredInvoices.forEach(inv => {
-      if (!inv.invoiceTotal) return;
-
-      // Use toDate as primary field since it represents the billing month
-      const dateStr = inv.toDate;
-      if (!dateStr) return;
-
-      let date: Date;
-      if (typeof dateStr === 'object' && 'seconds' in dateStr) {
-         date = new Date(dateStr.seconds * 1000);
-      } else if (dateStr instanceof Date) {
-         date = dateStr;
-      } else {
-         date = new Date(dateStr);
-      }
-
-      if (isNaN(date.getTime())) return;
-
-      // Format as "MMM YYYY" (e.g., "Jan 2024")
-      const key = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-
-      // Store the timestamp for proper sorting
-      const existing = monthlyData.get(key);
-      if (existing) {
-        existing.amount += inv.invoiceTotal;
-      } else {
-        monthlyData.set(key, {
-          amount: inv.invoiceTotal,
-          sortKey: date.getTime()
-        });
-      }
-    });
-
-    // Convert to array and sort chronologically by actual timestamp (oldest to newest)
-    return Array.from(monthlyData.entries())
-      .map(([Period, data]) => ({ Period, Amount: data.amount, sortKey: data.sortKey }))
-      .sort((a, b) => a.sortKey - b.sortKey)
-      .map(({ Period, Amount }) => ({ Period, Amount }));
-  }, [filteredInvoices]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -809,16 +653,6 @@ export function InvoicesClientPage({
       setActionLoadingId(null);
     }
   };
-
-  // Get unique companies for filter (admins/prime see all, subconsultants see only theirs)
-  const availableCompanies = useMemo(() => {
-    if (user?.role === 'Subconsultant') {
-      const userCompanyId = typeof user.companyId === 'object' && user.companyId.id ? user.companyId.id : user.companyId;
-      const userCompany = companies.find(c => c.id === userCompanyId);
-      return userCompany ? [userCompany] : [];
-    }
-    return companies;
-  }, [companies, user]);
 
   // Resolve assigned CoverPage template when dialog opens or scope changes
   // Guard against repeated fetches with last-fetched key and abort controller
@@ -1235,86 +1069,28 @@ export function InvoicesClientPage({
 
   return (
     <>
-      {/* Breadcrumbs */}
-      <Breadcrumbs
-        items={[{ label: "Invoices" }]}
-        className="mb-4"
+      <InvoiceListHeader
+        user={user}
+        departments={departments}
+        projects={projects}
+        contracts={contracts || []}
+        companies={companies || []}
+        users={users || []}
+        selectedCount={selectedInvoices.length}
+        isDeleting={isDeleting}
+        onConfirmBulkDeleteAction={confirmBulkDelete}
+        onOpenCoverPagesAction={() => setOpenCoverPage(true)}
+        onOpenInvoicesWizardAction={() => setOpenInvoices(true)}
+        onOpenTimecardWizardAction={() => setOpenTimecard(true)}
+        onOpenSummaryWizardAction={() => setOpenSummary(true)}
+        onOpenBillingPacketWizardAction={() => setOpenBillingPacket(true)}
+        onHistoricalInvoiceCreatedAction={() => {
+          toast({
+            title: 'Success',
+            description: 'Historical invoice added.',
+          });
+        }}
       />
-
-      {/* Header */}
-      <div id="main-content" className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Invoices</h1>
-          <p className="text-muted-foreground">
-            Manage and track all invoice submissions
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          {/* Reports Menu - hidden for Subconsultants */}
-          {user?.role !== 'Subconsultant' && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary">
-                  <Layers className="mr-2 h-4 w-4" /> Reports
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => setOpenCoverPage(true)}>
-                  <FileBox className="mr-2 h-4 w-4" /> Generate Cover Pages
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setOpenInvoices(true)}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Generate PDF Invoices
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setOpenTimecard(true)}>
-                  <ClipboardList className="mr-2 h-4 w-4" /> Generate Time Card Report
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setOpenSummary(true)}>
-                  <FileText className="mr-2 h-4 w-4" /> Overall Projects Summary Report
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setOpenBillingPacket(true)}>
-                  <FileArchive className="mr-2 h-4 w-4" /> Generate Monthly Billing Packet
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {selectedInvoices.length > 0 && (
-            <Button 
-              variant="destructive"
-              onClick={confirmBulkDelete}
-              disabled={isDeleting}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete Selected ({selectedInvoices.length})
-            </Button>
-          )}
-          {/* Only show Compile by Department for Admin and Prime users */}
-          {user?.role !== 'Subconsultant' && (
-            <DepartmentalCompilationDialog
-              departments={departments}
-            />
-          )}
-          <HistoricalInvoiceDialog
-            projects={projects}
-            departments={departments}
-            contracts={contracts || []}
-            companies={companies || []}
-            users={users || []}
-            currentUser={user || undefined}
-            onInvoiceCreated={() => {
-              // Optional: Trigger a refresh if needed, but Firestore listener should handle it
-              toast({
-                title: "Success",
-                description: "Historical invoice added.",
-              });
-            }}
-          />
-          <NewInvoiceDialog 
-            projects={projects}
-            departments={departments}
-          />
-        </div>
-      </div>
 
       {/* Placeholder modals, to be implemented next */}
       {/* Cover Pages Wizard */}
@@ -1674,375 +1450,67 @@ export function InvoicesClientPage({
         </Card>
       </div>
 
-      {/* Filters */}
-      <Card className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border overflow-visible">
-        <CardContent className="py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-full sm:w-auto">
-              <Label htmlFor="search" className="sr-only">Search</Label>
-              <Input
-                id="search"
-                placeholder="Search invoices, project, submitter"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-9 w-full sm:w-60 md:w-[280px]"
-              />
-            </div>
+      <InvoiceListFilters
+        user={user}
+        availableCompanies={availableCompanies}
+        projects={projects}
+        searchTerm={searchTerm}
+        onSearchTermChangeAction={setSearchTerm}
+        statusFilter={statusFilter}
+        onStatusFilterChangeAction={setStatusFilter}
+        paymentStatusFilter={paymentStatusFilter}
+        onPaymentStatusFilterChangeAction={setPaymentStatusFilter}
+        companyFilter={companyFilter}
+        onCompanyFilterChangeAction={setCompanyFilter}
+        projectFilter={projectFilter}
+        onProjectFilterChangeAction={setProjectFilter}
+        dateFrom={dateFrom}
+        onDateFromChangeAction={setDateFrom}
+        dateTo={dateTo}
+        onDateToChangeAction={setDateTo}
+        onResetAction={resetFilters}
+      />
 
-            <div>
-              <Label className="sr-only">Status</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-9 w-40">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="z-50">
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="submitted">Submitted</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className="sr-only">Payment Status</Label>
-              <Select value={paymentStatusFilter} onValueChange={setPaymentStatusFilter}>
-                <SelectTrigger className="h-9 w-[180px]">
-                  <SelectValue placeholder="Payment Status" />
-                </SelectTrigger>
-                <SelectContent className="z-50">
-                  <SelectItem value="all">All Payment Statuses</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="unpaid">Unpaid</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="partially_paid">Partially Paid</SelectItem>
-                  <SelectItem value="write_off">Write-Off</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {user?.role !== 'Subconsultant' && (
-              <div>
-                <Label className="sr-only">Company</Label>
-                <Select value={companyFilter} onValueChange={setCompanyFilter}>
-                  <SelectTrigger className="h-9 w-[200px]">
-                    <SelectValue placeholder="Company" />
-                  </SelectTrigger>
-                  <SelectContent className="z-50 max-h-64">
-                    <SelectItem value="all">All Companies</SelectItem>
-                    {availableCompanies.map((company) => (
-                      <SelectItem key={company.id} value={company.id}>
-                        {company.companyName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div>
-              <Label className="sr-only">Project</Label>
-              <Select value={projectFilter} onValueChange={setProjectFilter}>
-                <SelectTrigger className="h-9 w-[220px]">
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent className="z-50 max-h-64">
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.projectName}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div>
-                <Label className="sr-only">From Date</Label>
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-9 w-40" />
-              </div>
-              <span className="text-muted-foreground text-sm">to</span>
-              <div>
-                <Label className="sr-only">To Date</Label>
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 w-40" />
-              </div>
-            </div>
-
-            <div className="ml-auto">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  setSearchTerm("");
-                  setStatusFilter("all");
-                  setPaymentStatusFilter("all");
-                  setCompanyFilter("all");
-                  setProjectFilter("all");
-                  setDateFrom("");
-                  setDateTo("");
-                }}
-              >
-                Reset
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Invoices Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Invoices</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {filteredInvoices.length > 0 ? (
-            <GridComponent
-                dataSource={filteredInvoices}
-                allowPaging={true}
-                pageSettings={{ pageSize: 10 }}
-                allowSorting={true}
-                allowFiltering={true}
-                filterSettings={{ type: 'Menu' }}
-            >
-                <ColumnsDirective>
-                    <ColumnDirective
-                        headerTemplate={() => (
-                            <input
-                                type="checkbox"
-                                checked={selectedInvoices.length > 0 && selectedInvoices.length === filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length}
-                                onChange={toggleSelectAll}
-                                disabled={filteredInvoices.filter(inv => ['draft', 'submitted', 'approved'].includes(inv.status)).length === 0}
-                                className="rounded"
-                            />
-                        )}
-                        template={(props: any) => (
-                            <input
-                                type="checkbox"
-                                checked={props.id ? selectedInvoices.includes(props.id) : false}
-                                onChange={() => props.id && toggleInvoiceSelection(props.id)}
-                                disabled={!['draft', 'submitted', 'approved'].includes(props.status) || !props.id}
-                                className="rounded"
-                            />
-                        )}
-                        width='50'
-                    />
-                    <ColumnDirective field='invoiceNumber' headerText='Invoice #' width='120' template={(props: any) => (
-                        <span className="font-medium">
-                            {props.invoiceNumber || `INV-${props.id?.substring(0, 8) || 'DRAFT'}`}
-                        </span>
-                    )}/>
-                    <ColumnDirective field='projectName' headerText='Project' width='150'/>
-                    <ColumnDirective field='submitterName' headerText='Submitter' width='150'/>
-                    {user?.role !== 'Subconsultant' && (
-                        <ColumnDirective field='companyName' headerText='Company' width='150'/>
-                    )}
-                    <ColumnDirective field='invoiceTotal' headerText='Amount' width='120' template={(props: any) => (
-                        <span className="font-semibold">
-                            {formatCurrency(props.invoiceTotal || 0)}
-                        </span>
-                    )}/>
-                    <ColumnDirective field='status' headerText='Status' width='130' template={(props: any) => (
-                        <div className="flex items-center gap-2 max-w-[420px]">
-                            <Badge 
-                                variant="outline" 
-                                className={statusColors[props.status] || statusColors.draft}
-                            >
-                                {props.status}
-                            </Badge>
-                            {props.status === 'rejected' && props.rejectedNotes ? (
-                                <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={props.rejectedNotes}>
-                                    <AlertTriangle className="h-3 w-3" aria-hidden />
-                                    {props.rejectedNotes}
-                                </span>
-                            ) : null}
-                        </div>
-                    )}/>
-                    <ColumnDirective field='paymentStatus' headerText='Payment Status' width='130' template={(props: any) => (
-                        props.paymentStatus ? (
-                            <Badge
-                                variant="outline"
-                                className={paymentStatusColors[props.paymentStatus] || ''}
-                            >
-                                {props.paymentStatus === 'partially_paid' ? 'Partially Paid' : (
-                                    props.paymentStatus === 'write_off' ? 'Write-Off' : props.paymentStatus
-                                )}
-                            </Badge>
-                        ) : (
-                            <span className="text-xs text-muted-foreground">--</span>
-                        )
-                    )}/>
-                    <ColumnDirective field='dueDate' headerText='Due Date' width='120' template={(props: any) => formatDate(props.dueDate)}/>
-                    <ColumnDirective headerText='Actions' width='100' template={(props: any) => (
-                      <DropdownMenu>
-                                               <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0" disabled={isDeleting || actionLoadingId === props.id}>
-                            <span className="sr-only">Open menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewInvoice(props)}>
-                            <Eye className="mr-2 h-4 w-4" />
-                            View/Edit
-                          </DropdownMenuItem>
-
-                          {/* Submit/Resubmit for author */}
-                          {canSubmit(props) && props.id && (
-                            <DropdownMenuItem onClick={() => handleSubmitForReview(props.id!)} disabled={actionLoadingId === props.id}>
-                              <Send className="mr-2 h-4 w-4" />
-                              {props.status === 'rejected' ? 'Resubmit' : 'Submit for Review'}
-                            </DropdownMenuItem>
-                          )}
-
-                          {/* Approve/Reject for Admin/Prime */}
-                          {canApprove(props) && props.id && (
-                            <DropdownMenuItem onClick={() => handleApprove(props.id!)} disabled={actionLoadingId === props.id}>
-                              <CheckCircle className="mr-2 h-4 w-4" />
-                              Approve
-                            </DropdownMenuItem>
-                          )}
-                          {canReject(props) && props.id && (
-                            <DropdownMenuItem onClick={() => openRejectDialog(props.id!, props.status)} disabled={actionLoadingId === props.id}>
-                              <XCircle className="mr-2 h-4 w-4" />
-                              Reject...
-                            </DropdownMenuItem>
-                          )}
-
-                          {/* PDF actions */}
-                          {/* Restrict download to Admin/Prime */}
-                          {isAdminOrPrime && props.pdfUrl ? (
-                            <DropdownMenuItem onClick={() => {
-                              const sanitizedUrl = props.pdfUrl?.replace(/[<>"']/g, '');
-                              if (sanitizedUrl) window.open(sanitizedUrl, '_blank');
-                            }}>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download Generated PDF
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canGeneratePdf(props) && props.id && (
-                            <DropdownMenuItem onClick={() => handleGenerateApprovedPdf(props.id!)} disabled={actionLoadingId === props.id}>
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Generate/ReGenerate PDF
-                            </DropdownMenuItem>
-                          )}
-                          {canRestorePdf(props) && (
-                            <DropdownMenuItem onClick={() => openRestoreDialog(props)} disabled={actionLoadingId === props.id}>
-                              <History className="mr-2 h-4 w-4" />
-                              Restore PDF Version...
-                            </DropdownMenuItem>
-                          )}
-
-                          {isAdminOrPrime && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => openPaymentDrawer(props)}>
-                                <DollarSign className="mr-2 h-4 w-4" /> Manage Payment...
-                              </DropdownMenuItem>
-                            </>
-                          )}
-
-                          <DropdownMenuSeparator />
-                          {(props.isHistorical || ['draft', 'submitted', 'approved'].includes(props.status)) && props.id && (
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => props.id && confirmDeleteInvoice(props.id, props.status)}
-                              disabled={isDeleting || actionLoadingId === props.id}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}/>
-                </ColumnsDirective>
-                <Inject services={[Page, Sort, Filter, Toolbar]} />
-            </GridComponent>
-          ) : (
-            <div className="py-8">
-              {debouncedSearchTerm || statusFilter !== 'all' || paymentStatusFilter !== 'all' || companyFilter !== 'all' || projectFilter !== 'all' || dateFrom || dateTo ? (
-                <div className="text-center py-12">
-                  <div className="rounded-full bg-muted p-3 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                    <FileText className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">No invoices found</h3>
-                  <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-                    No invoices match your current filters. Try adjusting your search criteria or clear the filters to see all invoices.
-                  </p>
-                  <div className="flex gap-3 justify-center">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setSearchTerm("");
-                        setStatusFilter("all");
-                        setPaymentStatusFilter("all");
-                        setCompanyFilter("all");
-                        setProjectFilter("all");
-                        setDateFrom("");
-                        setDateTo("");
-                      }}
-                    >
-                      Clear Filters
-                    </Button>
-                    <HistoricalInvoiceDialog
-                      projects={projects}
-                      departments={departments}
-                      contracts={contracts || []}
-                      companies={companies || []}
-                      users={users || []}
-                      currentUser={user || undefined}
-                      onInvoiceCreated={() => {
-                        toast({
-                          title: "Success",
-                          description: "Historical invoice added.",
-                        });
-                      }}
-                    />
-                    <NewInvoiceDialog
-                      projects={projects}
-                      departments={departments}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="rounded-full bg-muted p-3 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                    <FileText className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">No invoices yet</h3>
-                  <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-                    {user?.role === 'Subconsultant'
-                      ? "Get started by creating your first invoice. You can track payments, generate PDFs, and manage approvals all in one place."
-                      : "No invoices have been created yet. Create your first invoice to get started tracking payments and approvals."
-                    }
-                  </p>
-                  <div className="flex gap-3 justify-center">
-                    <HistoricalInvoiceDialog
-                      projects={projects}
-                      departments={departments}
-                      contracts={contracts || []}
-                      companies={companies || []}
-                      users={users || []}
-                      currentUser={user || undefined}
-                      onInvoiceCreated={() => {
-                        toast({
-                          title: "Success",
-                          description: "Historical invoice added.",
-                        });
-                      }}
-                    />
-                    <NewInvoiceDialog
-                      projects={projects}
-                      departments={departments}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <InvoiceListGrid
+        user={user}
+        projects={projects}
+        departments={departments}
+        contracts={contracts || []}
+        companies={companies || []}
+        users={users || []}
+        filteredInvoices={filteredInvoices as any}
+        hasActiveFilters={hasActiveFilters}
+        onClearFiltersAction={resetFilters}
+        selectedInvoices={selectedInvoices}
+        toggleSelectAllAction={toggleSelectAll}
+        toggleInvoiceSelectionAction={toggleInvoiceSelection}
+        isDeleting={isDeleting}
+        actionLoadingId={actionLoadingId}
+        isAdminOrPrime={isAdminOrPrime}
+        statusColors={statusColors}
+        paymentStatusColors={paymentStatusColors}
+        formatCurrencyAction={formatCurrency}
+        formatDateAction={formatDate}
+        canSubmitAction={canSubmit}
+        canApproveAction={canApprove}
+        canRejectAction={canReject}
+        canGeneratePdfAction={canGeneratePdf}
+        canRestorePdfAction={canRestorePdf}
+        onViewInvoiceAction={handleViewInvoice}
+        onSubmitForReviewAction={handleSubmitForReview}
+        onApproveAction={handleApprove}
+        onOpenRejectDialogAction={(invoiceId, status) => openRejectDialog(invoiceId, status)}
+        onGenerateApprovedPdfAction={handleGenerateApprovedPdf}
+        onOpenRestoreDialogAction={openRestoreDialog}
+        onOpenPaymentDrawerAction={openPaymentDrawer}
+        onConfirmDeleteInvoiceAction={confirmDeleteInvoice}
+        onHistoricalInvoiceCreatedAction={() => {
+          toast({
+            title: 'Success',
+            description: 'Historical invoice added.',
+          });
+        }}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

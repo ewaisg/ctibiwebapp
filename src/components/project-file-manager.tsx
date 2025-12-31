@@ -34,7 +34,7 @@ import {
   FileSpreadsheet,
   Archive
 } from 'lucide-react';
-import { uploadProjectFile, deleteProjectFile } from '@/app/(authenticated)/admin/actions';
+import { uploadProjectFile, deleteProjectFile } from '@/app/(authenticated)/admin/admin-project-actions';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
 

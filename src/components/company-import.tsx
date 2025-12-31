@@ -5,7 +5,7 @@ import { Upload, FileText, AlertTriangle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { processCompanyImport } from "@/app/(authenticated)/admin/actions";
+import { processCompanyImport } from "@/app/(authenticated)/admin/admin-company-actions";
 import type { Company } from "@/types";
 
 interface CompanyImportProps {

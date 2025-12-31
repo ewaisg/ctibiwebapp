@@ -3,14 +3,20 @@
 import {
   deleteInvoice as _deleteInvoice,
   deleteMultipleInvoices as _deleteMultipleInvoices,
+  getInvoiceByIdOrNumber as _getInvoiceByIdOrNumber,
+  createHistoricalInvoice as _createHistoricalInvoice,
+} from '../invoicing/invoice-crud-actions';
+
+import {
   submitInvoiceForReview as _submitInvoiceForReview,
   approveInvoice as _approveInvoice,
   rejectInvoice as _rejectInvoice,
+} from '../invoicing/invoice-workflow-actions';
+
+import {
   generateInvoicePdf as _generateInvoicePdf,
   restoreInvoicePdfVersion as _restoreInvoicePdfVersion,
-  getInvoiceByIdOrNumber as _getInvoiceByIdOrNumber,
-  createHistoricalInvoice as _createHistoricalInvoice,
-} from '../invoicing/actions';
+} from '../invoicing/invoice-pdf-actions';
 
 
 export async function deleteInvoice(...args: Parameters<typeof _deleteInvoice>): Promise<ReturnType<typeof _deleteInvoice> extends Promise<infer R> ? R : never> {

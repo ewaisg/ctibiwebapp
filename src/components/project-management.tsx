@@ -23,7 +23,7 @@ import { ProjectImport } from "@/components/project-import";
 import { ProjectTeamManagement } from "@/components/project-team-management";
 import type { Project, Contract, Company, Department, Division, Service, Employee } from "@/types";
 import { toast } from "react-hot-toast";
-import { updateProject } from "@/app/(authenticated)/admin/actions";
+import { updateProject } from "@/app/(authenticated)/admin/admin-project-actions";
 import { L10n } from '@syncfusion/ej2-base';
 import { 
   GridComponent, 

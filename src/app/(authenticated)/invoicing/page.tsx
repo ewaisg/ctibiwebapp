@@ -2,7 +2,8 @@ import { Suspense } from "react";
 import { ProtectedRoute } from "@/components/protected-route";
 import { InvoicingClientPage } from "./client-page";
 import { InvoicingErrorBoundary } from "@/components/invoicing/InvoicingErrorBoundary";
-import { getProjects, getDepartments, getEmployees, getCompanies, getServices, getRates, getInvoiceByIdOrNumber } from './actions';
+import { getProjects, getDepartments, getEmployees, getCompanies, getServices, getRates } from './invoice-autofill-actions';
+import { getInvoiceByIdOrNumber } from './invoice-crud-actions';
 import type {
   Project,
   Department,

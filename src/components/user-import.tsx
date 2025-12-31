@@ -5,7 +5,7 @@ import { Upload, FileText, AlertTriangle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { processUserImport } from "@/app/(authenticated)/admin/actions";
+import { processUserImport } from "@/app/(authenticated)/admin/admin-user-actions";
 import type { User, Company } from "@/types";
 
 interface UserImportProps {

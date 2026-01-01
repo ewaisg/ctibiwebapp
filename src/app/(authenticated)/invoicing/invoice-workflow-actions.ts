@@ -3,6 +3,7 @@
 import { extractId } from '@/lib/document-reference-utils';
 import { notifyAdminsPrimes, notifyAuthor } from '@/lib/notifications';
 import type { Invoice } from '@/types';
+import { nextSubmissionStatus, normalizeInvoiceStatus } from '@/lib/invoice-status';
 import { adminDb, getUserRoleAndName, assertAllowed, nowTs, revalidateInvoiceViews, sumInvoiceHours } from './invoice-shared';
 
 // Submit for review (Subconsultant: from draft -> submitted; from rejected -> resubmitted)
@@ -21,12 +22,12 @@ export async function submitInvoiceForReview(invoiceId: string, authorUid: strin
     const invAuthorId = extractId(inv.userId) || '';
     if (role === 'Subconsultant' && invAuthorId !== authorUid) throw new Error('Cannot submit someone else\'s invoice');
 
-    const cur = String(inv.status || 'draft').toLowerCase();
+    const cur = normalizeInvoiceStatus((inv as any).status);
     if (cur === 'submitted' || cur === 'resubmitted' || cur === 'approved') {
       throw new Error('Invoice is locked and cannot be submitted');
     }
 
-    const nextStatus = cur === 'rejected' ? 'resubmitted' : 'submitted';
+    const nextStatus = nextSubmissionStatus(cur);
     const history = Array.isArray(inv.history) ? inv.history.slice() : [];
     history.push({
       date: nowTs(),
@@ -56,7 +57,8 @@ export async function submitInvoiceForReview(invoiceId: string, authorUid: strin
     t.update(invoiceRef, {
       status: nextStatus,
       history,
-      rejectedNotes: nextStatus === 'resubmitted' ? null : (inv as any).rejectedNotes ?? null,
+      // Always clear rejectedNotes when moving into review.
+      rejectedNotes: null,
       submittedSnapshot,
     });
   });
@@ -83,7 +85,7 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
     if (!snap.exists) throw new Error('Invoice not found');
     const inv = snap.data() as any as Invoice;
 
-    const cur = String(inv.status || '').toLowerCase();
+    const cur = normalizeInvoiceStatus((inv as any).status);
     if (cur === 'approved' && (inv.approvalRunId === approvalRunId || !approvalRunId)) {
       return; // idempotent
     }
@@ -91,7 +93,18 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
       throw new Error('Invoice not in approvable state');
     }
 
-    const total = Number(inv.invoiceTotal || 0);
+    const invoiceItemsTotalDerived = Array.isArray((inv as any).invoiceItems)
+      ? (inv as any).invoiceItems.reduce((sum: number, item: any) => sum + Number(item?.amount || 0), 0)
+      : 0;
+    const reimbursableExpensesTotalDerived = Array.isArray((inv as any).reimbursableExpenses)
+      ? (inv as any).reimbursableExpenses.reduce((sum: number, exp: any) => sum + Number(exp?.amount || 0), 0)
+      : 0;
+    const totalDerived = invoiceItemsTotalDerived + reimbursableExpensesTotalDerived;
+    const total = Number.isFinite(Number((inv as any).invoiceTotal))
+      ? Number((inv as any).invoiceTotal)
+      : Number.isFinite(totalDerived)
+        ? totalDerived
+        : 0;
     const hours = sumInvoiceHours(inv);
 
     // Update invoice fields
@@ -106,19 +119,21 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
       approvedByName: displayName || 'Unknown',
     };
 
-    const needsSubmittedSnapshot = !(inv as any).submittedSnapshot;
-    const submittedSnapshot = needsSubmittedSnapshot
-      ? {
-          capturedAt: nowTs(),
-          capturedBy: (inv as any).userId || null,
-          capturedByName: (inv as any).submitterName || 'Unknown',
-          invoiceItems: Array.isArray((inv as any).invoiceItems) ? (inv as any).invoiceItems : [],
-          reimbursableExpenses: Array.isArray((inv as any).reimbursableExpenses) ? (inv as any).reimbursableExpenses : [],
-          invoiceItemsTotal: Number((inv as any).invoiceItemsTotal || 0),
-          reimbursableExpensesTotal: Number((inv as any).reimbursableExpensesTotal || 0),
-          invoiceTotal: Number((inv as any).invoiceTotal || 0),
-        }
-      : undefined;
+    // Always refresh submittedSnapshot at approval time to avoid drift.
+    const submittedSnapshot = {
+      capturedAt: nowTs(),
+      capturedBy: (inv as any).userId || null,
+      capturedByName: (inv as any).submitterName || 'Unknown',
+      invoiceItems: Array.isArray((inv as any).invoiceItems) ? (inv as any).invoiceItems : [],
+      reimbursableExpenses: Array.isArray((inv as any).reimbursableExpenses) ? (inv as any).reimbursableExpenses : [],
+      invoiceItemsTotal: Number.isFinite(Number((inv as any).invoiceItemsTotal))
+        ? Number((inv as any).invoiceItemsTotal)
+        : invoiceItemsTotalDerived,
+      reimbursableExpensesTotal: Number.isFinite(Number((inv as any).reimbursableExpensesTotal))
+        ? Number((inv as any).reimbursableExpensesTotal)
+        : reimbursableExpensesTotalDerived,
+      invoiceTotal: total,
+    };
 
     // Apply project rollups
     const projectId = extractId(inv.projectId);
@@ -155,7 +170,7 @@ export async function approveInvoice(invoiceId: string, approverUid: string, app
       approvalSnapshot,
       approvalRunId,
       history,
-      ...(submittedSnapshot ? { submittedSnapshot } : {}),
+      submittedSnapshot,
     });
   });
 

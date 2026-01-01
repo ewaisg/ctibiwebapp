@@ -7,6 +7,7 @@ import { extractId } from '@/lib/document-reference-utils';
 import type { Invoice } from '@/types';
 import { Timestamp as AdminTimestamp } from 'firebase-admin/firestore';
 import { adminDb, AdminTs, serializeFirestoreValue, snapshotToInvoice, getUserRoleAndName, nowTs, revalidateInvoiceViews } from './invoice-shared';
+import { submitInvoiceForReview } from './invoice-workflow-actions';
 
 // Invoice creation schema
 const CreateInvoiceSchema = z.object({
@@ -550,8 +551,11 @@ export async function submitInvoice(invoiceId: string, userId: string) {
       throw new Error('Invoice not found');
     }
 
+    // Canonical transition logic (handles rejected/revision_requested -> resubmitted, clears rejectedNotes, writes submittedSnapshot/history)
+    await submitInvoiceForReview(validatedInvoiceId, validatedUserId);
+
+    // Preserve legacy fields used by some metrics/reporting
     await invoiceRef.update({
-      status: 'submitted',
       submittedAt: AdminTs.now(),
       submittedBy: validatedUserId,
     });

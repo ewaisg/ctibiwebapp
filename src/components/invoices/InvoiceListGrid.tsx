@@ -19,6 +19,7 @@ import {
   Toolbar,
 } from '@syncfusion/ej2-react-grids';
 import type { EnrichedInvoice } from '@/hooks/use-invoice-list';
+import { normalizeInvoiceStatus } from '@/lib/invoice-status';
 
 export function InvoiceListGrid(props: {
   user: User | null;
@@ -100,6 +101,11 @@ export function InvoiceListGrid(props: {
     onHistoricalInvoiceCreatedAction,
   } = props;
 
+  const isBulkSelectableStatus = (status: unknown) => {
+    const s = normalizeInvoiceStatus(status);
+    return s === 'draft' || s === 'submitted' || s === 'resubmitted' || s === 'approved';
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -123,10 +129,10 @@ export function InvoiceListGrid(props: {
                     checked={
                       selectedInvoices.length > 0 &&
                       selectedInvoices.length ===
-                        filteredInvoices.filter((inv: any) => ['draft', 'submitted', 'approved'].includes(inv.status)).length
+                        filteredInvoices.filter((inv: any) => isBulkSelectableStatus(inv.status)).length
                     }
                     onChange={toggleSelectAllAction}
-                    disabled={filteredInvoices.filter((inv: any) => ['draft', 'submitted', 'approved'].includes(inv.status)).length === 0}
+                    disabled={filteredInvoices.filter((inv: any) => isBulkSelectableStatus(inv.status)).length === 0}
                     className="rounded"
                   />
                 )}
@@ -135,7 +141,7 @@ export function InvoiceListGrid(props: {
                     type="checkbox"
                     checked={row.id ? selectedInvoices.includes(row.id) : false}
                     onChange={() => row.id && toggleInvoiceSelectionAction(row.id)}
-                    disabled={!['draft', 'submitted', 'approved'].includes(row.status) || !row.id}
+                    disabled={!isBulkSelectableStatus(row.status) || !row.id}
                     className="rounded"
                   />
                 )}
@@ -169,8 +175,15 @@ export function InvoiceListGrid(props: {
                 width="130"
                 template={(row: any) => (
                   <div className="flex items-center gap-2 max-w-[420px]">
-                    <Badge variant="outline" className={statusColors[row.status] || statusColors.draft}>
-                      {row.status}
+                    <Badge
+                      variant="outline"
+                      className={
+                        statusColors[normalizeInvoiceStatus(row.status)] ||
+                        statusColors[row.status] ||
+                        statusColors.draft
+                      }
+                    >
+                      {normalizeInvoiceStatus(row.status)}
                     </Badge>
                     {row.status === 'rejected' && row.rejectedNotes ? (
                       <span

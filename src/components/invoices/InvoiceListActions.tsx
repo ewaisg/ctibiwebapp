@@ -20,6 +20,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
+import { normalizeInvoiceStatus } from '@/lib/invoice-status';
 
 export function InvoiceListActions(props: {
   invoice: any;
@@ -62,6 +63,8 @@ export function InvoiceListActions(props: {
     onConfirmDeleteInvoiceAction,
   } = props;
 
+  const normalizedStatus = normalizeInvoiceStatus(invoice?.status);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -79,7 +82,7 @@ export function InvoiceListActions(props: {
         {canSubmitAction(invoice) && invoice?.id && (
           <DropdownMenuItem onClick={() => onSubmitForReviewAction(invoice.id)} disabled={actionLoadingId === invoice.id}>
             <Send className="mr-2 h-4 w-4" />
-            {invoice.status === 'rejected' ? 'Resubmit' : 'Submit for Review'}
+            {normalizedStatus === 'rejected' || normalizedStatus === 'revision_requested' ? 'Resubmit' : 'Submit for Review'}
           </DropdownMenuItem>
         )}
 
@@ -136,7 +139,7 @@ export function InvoiceListActions(props: {
         ) : null}
 
         <DropdownMenuSeparator />
-        {(invoice?.isHistorical || ['draft', 'submitted', 'approved'].includes(invoice?.status)) && invoice?.id ? (
+        {(invoice?.isHistorical || ['draft', 'submitted', 'resubmitted', 'approved'].includes(normalizedStatus)) && invoice?.id ? (
           <DropdownMenuItem
             className="text-destructive"
             onClick={() => onConfirmDeleteInvoiceAction(invoice.id, invoice.status)}

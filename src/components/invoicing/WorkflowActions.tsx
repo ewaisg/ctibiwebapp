@@ -13,7 +13,7 @@ interface WorkflowActionsProps {
   canReject: boolean;
   canGeneratePdf: boolean;
   canRestorePdf: boolean;
-  invStatus: 'draft'|'submitted'|'approved'|'rejected'|'resubmitted';
+  invStatus: 'draft'|'submitted'|'approved'|'rejected'|'resubmitted'|'revision_requested';
   actionLoading: boolean;
   existingInvoice?: { id?: string; pdfUrl?: string } | null;
   onSaveChanges: () => void;
@@ -66,7 +66,7 @@ function WorkflowActionsBase({
             {(canSubmit || canResubmit) && (
               <Button onClick={onSubmitForReview} className="w-full" disabled={actionLoading}>
                 <FileText className="mr-2 h-4 w-4" />
-                {invStatus === 'rejected' ? 'Resubmit for Review' : 'Submit for Review'}
+                {invStatus === 'rejected' || invStatus === 'revision_requested' ? 'Resubmit for Review' : 'Submit for Review'}
               </Button>
             )}
 

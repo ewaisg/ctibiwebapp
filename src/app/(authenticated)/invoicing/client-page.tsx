@@ -213,7 +213,8 @@ export function InvoicingClientPage({
     | "submitted"
     | "approved"
     | "rejected"
-    | "resubmitted";
+    | "resubmitted"
+    | "revision_requested";
   const canSubmit = access.canSubmit;
   const canResubmit = access.canResubmit;
   const canApprove = access.canApprove;
@@ -1356,7 +1357,8 @@ export function InvoicingClientPage({
                 | "submitted"
                 | "approved"
                 | "rejected"
-                | "resubmitted")
+                | "resubmitted"
+                | "revision_requested")
             : undefined
         }
         showBack={false}

@@ -3,18 +3,19 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Clock } from 'lucide-react';
 
-const statusColors: Record<'draft'|'submitted'|'approved'|'rejected'|'resubmitted', string> = {
+const statusColors: Record<'draft'|'submitted'|'approved'|'rejected'|'resubmitted'|'revision_requested', string> = {
   draft: "bg-yellow-500 text-white",
   submitted: "bg-blue-500 text-white",
   approved: "bg-green-500 text-white",
   rejected: "bg-red-500 text-white",
   resubmitted: "bg-blue-500 text-white",
+  revision_requested: "bg-yellow-500 text-white",
 };
 
 interface HeaderProps {
   title: string;
   subtitle?: string;
-  status?: 'draft'|'submitted'|'approved'|'rejected'|'resubmitted';
+  status?: 'draft'|'submitted'|'approved'|'rejected'|'resubmitted'|'revision_requested';
   showBack?: boolean;
   onBack?: () => void;
   isLoadingTimesheet?: boolean;

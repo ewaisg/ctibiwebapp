@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { EnrichedInvoice } from '@/hooks/use-invoice-list';
+import { matchesStatusFilter, isPendingInvoiceStatus } from '@/lib/invoice-status';
 
 export interface InvoiceMetrics {
   totalInvoices: number;
@@ -56,7 +57,7 @@ export function useInvoiceFilters(invoices: EnrichedInvoice[]) {
     }
 
     if (statusFilter !== 'all') {
-      filtered = filtered.filter((invoice: any) => invoice.status === statusFilter);
+      filtered = filtered.filter((invoice: any) => matchesStatusFilter(invoice.status, statusFilter));
     }
 
     if (paymentStatusFilter !== 'all') {
@@ -102,7 +103,7 @@ export function useInvoiceFilters(invoices: EnrichedInvoice[]) {
   const metrics = useMemo<InvoiceMetrics>(() => {
     const totalInvoices = filteredInvoices.length;
     const draftInvoices = filteredInvoices.filter((inv) => inv.status === 'draft').length;
-    const pendingInvoices = filteredInvoices.filter((inv) => inv.status === 'submitted').length;
+    const pendingInvoices = filteredInvoices.filter((inv) => isPendingInvoiceStatus(inv.status)).length;
     const approvedInvoices = filteredInvoices.filter((inv) => inv.status === 'approved').length;
     const totalAmount = filteredInvoices.reduce((sum, inv: any) => sum + (inv.invoiceTotal || 0), 0);
 

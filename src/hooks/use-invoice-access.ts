@@ -41,6 +41,9 @@ export function getInvoiceAccess(user: User | null | undefined, invoice: Invoice
   if (status === 'rejected') {
     return { canView: true, isReadOnly: !isAuthor, canSubmit: false, canResubmit: isAuthor, canApprove: false, canReject: false, canGeneratePdf: false, canRestorePdf: false, isAuthor, isAdminOrPrime, status: 'rejected' as const };
   }
+  if (status === 'revision_requested') {
+    return { canView: true, isReadOnly: !isAuthor, canSubmit: false, canResubmit: isAuthor, canApprove: false, canReject: false, canGeneratePdf: false, canRestorePdf: false, isAuthor, isAdminOrPrime, status: 'revision_requested' as const };
+  }
   if (status === 'approved') {
     return {
       canView: true,

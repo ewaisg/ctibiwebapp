@@ -92,6 +92,18 @@ function isStateChangingRequest(request: NextRequest): boolean {
     return false;
   }
 
+  // Exempt token-authenticated upload endpoint (protected by server auth + rate limiting).
+  if (pathname === '/api/timesheet-upload') {
+    return false;
+  }
+
+  // CSRF protection is only relevant for cookie-based auth (browser auto-attaches cookies).
+  // If there's no session cookie, skip CSRF validation.
+  const sessionCookie = request.cookies.get('__session')?.value;
+  if (!sessionCookie) {
+    return false;
+  }
+
   return ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method);
 }
 

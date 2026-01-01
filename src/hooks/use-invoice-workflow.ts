@@ -163,7 +163,9 @@ export function useInvoiceWorkflow({
           }
         }
 
-        toast({ title: invStatus === 'rejected' ? 'Resubmitted' : 'Submitted for review' });
+        toast({
+          title: invStatus === 'rejected' || invStatus === 'revision_requested' ? 'Resubmitted' : 'Submitted for review',
+        });
         router.refresh();
       } else {
         toast({

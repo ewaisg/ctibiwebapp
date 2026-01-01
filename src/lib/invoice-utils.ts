@@ -1,4 +1,5 @@
 import type { User, Invoice, UserRole, InvoiceItemForm } from '@/types';
+import { normalizeInvoiceStatus } from '@/lib/invoice-status';
 
 interface InvoiceAccess {
   canView: boolean;
@@ -41,7 +42,7 @@ export function getInvoiceAccess(
   }
 
   const role = (user?.role ?? undefined) as UserRole | undefined;
-  const status = String(invoice?.status || 'draft').toLowerCase();
+  const status = normalizeInvoiceStatus(invoice?.status);
   const authorId = (typeof invoice?.userId === 'object' && (invoice?.userId as any)?.id)
     ? (invoice?.userId as any).id
     : invoice?.userId;
@@ -101,6 +102,23 @@ export function getInvoiceAccess(
 
   // Rejected: If author: editable and can Resubmit, Others: read-only
   if (status === 'rejected') {
+    return {
+      canView: true,
+      isReadOnly: !isAuthor,
+      canSubmit: false,
+      canResubmit: isAuthor,
+      canApprove: false,
+      canReject: false,
+      canGeneratePdf: false,
+      canRestorePdf: false,
+      isAuthor,
+      isAdminOrPrime,
+      status,
+    };
+  }
+
+  // Revision requested: If author: editable and can Resubmit, Others: read-only
+  if (status === 'revision_requested') {
     return {
       canView: true,
       isReadOnly: !isAuthor,
@@ -244,7 +262,7 @@ export async function prepareInvoicePayload(
  * Status color mapping for invoice statuses
  */
 export const statusColors: Record<
-  'draft' | 'submitted' | 'approved' | 'rejected' | 'resubmitted',
+  'draft' | 'submitted' | 'approved' | 'rejected' | 'resubmitted' | 'revision_requested',
   string
 > = {
   draft: 'bg-yellow-500 text-white',
@@ -252,4 +270,5 @@ export const statusColors: Record<
   approved: 'bg-green-500 text-white',
   rejected: 'bg-red-500 text-white',
   resubmitted: 'bg-blue-500 text-white',
+  revision_requested: 'bg-yellow-500 text-white',
 };
